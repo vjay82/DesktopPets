@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
+<!--
+  Bird "knocked out" pose: the Idle/tile001 silhouette rotated 180 deg
+  around its body center (16, 25) so the bird is belly-up with legs
+  sticking into the air, plus a small ring of impact stars where its
+  head now hangs at the bottom. Used by Pet.fallOutAndExit when a
+  Bird visitor is hit by a rolling Ball - reads as "stunned, falling
+  out of the sky" alongside the showEmote("bang") sparkle.
+-->
+<g transform="rotate(180 16 25)">
+  <!-- Head -->
+  <rect x="14" y="19" width="3" height="1" fill="#000000"/>
+  <rect x="13" y="20" width="1" height="1" fill="#000000"/>
+  <rect x="14" y="20" width="3" height="1" fill="#37446e"/>
+  <rect x="17" y="20" width="1" height="1" fill="#000000"/>
+  <rect x="13" y="21" width="1" height="1" fill="#000000"/>
+  <rect x="14" y="21" width="3" height="1" fill="#37446e"/>
+  <rect x="17" y="21" width="1" height="1" fill="#000000"/>
+  <!-- Body -->
+  <rect x="13" y="22" width="1" height="1" fill="#000000"/>
+  <rect x="14" y="22" width="1" height="1" fill="#37446e"/>
+  <rect x="15" y="22" width="1" height="1" fill="#158968"/>
+  <rect x="16" y="22" width="1" height="1" fill="#000000"/>
+  <rect x="12" y="23" width="1" height="1" fill="#000000"/>
+  <rect x="13" y="23" width="1" height="1" fill="#37446e"/>
+  <rect x="14" y="23" width="2" height="1" fill="#158968"/>
+  <rect x="16" y="23" width="1" height="1" fill="#000000"/>
+  <rect x="12" y="24" width="1" height="1" fill="#000000"/>
+  <rect x="13" y="24" width="1" height="1" fill="#37446e"/>
+  <rect x="14" y="24" width="3" height="1" fill="#158968"/>
+  <rect x="17" y="24" width="1" height="1" fill="#000000"/>
+  <rect x="11" y="25" width="1" height="1" fill="#000000"/>
+  <rect x="12" y="25" width="3" height="1" fill="#566a89"/>
+  <rect x="15" y="25" width="2" height="1" fill="#158968"/>
+  <rect x="17" y="25" width="1" height="1" fill="#000000"/>
+  <rect x="10" y="26" width="1" height="1" fill="#000000"/>
+  <rect x="11" y="26" width="5" height="1" fill="#566a89"/>
+  <rect x="16" y="26" width="1" height="1" fill="#37446e"/>
+  <rect x="17" y="26" width="1" height="1" fill="#000000"/>
+  <rect x="8" y="27" width="2" height="1" fill="#000000"/>
+  <rect x="10" y="27" width="1" height="1" fill="#566a89"/>
+  <rect x="11" y="27" width="1" height="1" fill="#222a5c"/>
+  <rect x="12" y="27" width="1" height="1" fill="#566a89"/>
+  <rect x="13" y="27" width="1" height="1" fill="#222a5c"/>
+  <rect x="14" y="27" width="2" height="1" fill="#566a89"/>
+  <rect x="16" y="27" width="1" height="1" fill="#37446e"/>
+  <rect x="17" y="27" width="1" height="1" fill="#000000"/>
+  <!-- Tail (now sticks out to the side) -->
+  <rect x="5" y="28" width="3" height="1" fill="#000000"/>
+  <rect x="8" y="28" width="2" height="1" fill="#222a5c"/>
+  <rect x="10" y="28" width="2" height="1" fill="#566a89"/>
+  <rect x="12" y="28" width="3" height="1" fill="#222a5c"/>
+  <rect x="15" y="28" width="1" height="1" fill="#37446e"/>
+  <rect x="16" y="28" width="1" height="1" fill="#000000"/>
+  <rect x="4" y="29" width="1" height="1" fill="#000000"/>
+  <rect x="5" y="29" width="4" height="1" fill="#222a5c"/>
+  <rect x="9" y="29" width="2" height="1" fill="#000000"/>
+  <rect x="11" y="29" width="3" height="1" fill="#566a89"/>
+  <rect x="14" y="29" width="2" height="1" fill="#000000"/>
+  <rect x="4" y="30" width="5" height="1" fill="#000000"/>
+  <!-- Legs (post-rotation these stick UP into the air) -->
+  <rect x="11" y="30" width="1" height="1" fill="#000000"/>
+  <rect x="12" y="30" width="1" height="1" fill="#ab1f65"/>
+  <rect x="13" y="30" width="1" height="1" fill="#000000"/>
+  <rect x="11" y="31" width="1" height="1" fill="#000000"/>
+  <rect x="12" y="31" width="1" height="1" fill="#ab1f65"/>
+  <rect x="13" y="31" width="1" height="1" fill="#000000"/>
+</g>
+<!-- Impact stars around the (now-lower) head, which sits around y=29-31
+     after rotation. Yellow plus-sign sparkles. -->
+<!-- Star 1: just left of the head -->
+<rect x="10" y="29" width="1" height="1" fill="#f6cd26"/>
+<rect x="9" y="30" width="3" height="1" fill="#f6cd26"/>
+<rect x="10" y="31" width="1" height="1" fill="#f6cd26"/>
+<!-- Star 2: just right of the head -->
+<rect x="20" y="29" width="1" height="1" fill="#f6cd26"/>
+<rect x="19" y="30" width="3" height="1" fill="#f6cd26"/>
+<rect x="20" y="31" width="1" height="1" fill="#f6cd26"/>
+<!-- Single bright dot above the upturned belly -->
+<rect x="22" y="22" width="1" height="1" fill="#f6cd26"/>
+<rect x="3" y="22" width="1" height="1" fill="#f6cd26"/>
+</svg>

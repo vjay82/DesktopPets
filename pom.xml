@@ -15,7 +15,10 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.release>26</maven.compiler.release>
+        <!-- Compile against JDK 22 so the resulting jar can be consumed by
+             autoMATE (which currently ships with JDK 22). The fork itself
+             still runs fine on any JDK >= 22. -->
+        <maven.compiler.release>22</maven.compiler.release>
         <main.class>com.desktoppets.Main</main.class>
         <jsvg.version>1.5.0</jsvg.version>
         <junit.version>5.11.0</junit.version>

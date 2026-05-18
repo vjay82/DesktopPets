@@ -21,6 +21,7 @@ public final class Bird extends Pet {
     }
 
     @Override public boolean isVisitor() { return true; }
+    @Override public boolean flies()      { return true; }
 
     @Override protected String doodleKind() { return "bird"; }
 

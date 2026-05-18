@@ -25,5 +25,9 @@ public final class Main {
         // Start the wandering-bird scheduler AFTER residents reconcile so
         // its first poll already sees the live pet list.
         BirdVisitor.start(supervisor);
+        // Rare cross-species visits for the solo-pet case: a lone cat may
+        // get visited by a ducky/dog (or vice versa) every ~25 min on
+        // average. No-op when 0 or 2+ residents are active.
+        PetVisitor.start(supervisor);
     }
 }

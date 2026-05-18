@@ -44,46 +44,68 @@ public final class PetSupervisor {
     }
 
     public void reconcile(List<String> wanted) {
-        Set<String> wantedSet = new HashSet<>();
+        // Collapse the legacy "list of species names" form into the
+        // species->count form. Duplicates in the list spawn that many
+        // instances of the species, matching the behaviour of
+        // {@link #reconcileCounts}.
+        Map<String, Integer> counts = new HashMap<>();
         for (String w : wanted) {
+            if (w == null) continue;
             String key = w.toLowerCase(Locale.ROOT);
-            // Drop visitor-only / removed species silently so legacy
-            // config.txt entries (e.g. "bird" before it became a visitor)
-            // don't fail or spawn unexpectedly.
-            if (NON_RESIDENT.contains(key)) {
-                continue;
-            }
-            wantedSet.add(key);
+            counts.merge(key, 1, Integer::sum);
         }
-        Log.info("supervisor", "reconcile â†’ " + wantedSet);
+        reconcileCounts(counts);
+    }
 
-        // Decide everything under the lock, but run blocking work (thread
-        // start, disposeWindow which round-trips to the EDT) outside it so a
-        // hung EDT doesn't deadlock other reconcile/setSize callers.
+    /**
+     * Reconcile to a species->count mapping. Each species can have multiple
+     * live instances; instances are keyed internally as {@code species#index}
+     * so that incrementing or decrementing a count only spawns/stops the
+     * delta (instances 0..count-1 are kept, the rest are stopped).
+     *
+     * <p>Visitor-only species (currently {@code bird}) are silently dropped
+     * the same way as in {@link #reconcile(List)}.
+     */
+    public void reconcileCounts(Map<String, Integer> wantedCounts) {
+        // Build desired set of composite keys "<species>#<index>"
+        Map<String, String> wantedKeyToSpecies = new HashMap<>();
+        for (Map.Entry<String, Integer> e : wantedCounts.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) continue;
+            String species = e.getKey().toLowerCase(Locale.ROOT);
+            if (NON_RESIDENT.contains(species)) continue;
+            int n = Math.max(0, e.getValue());
+            for (int i = 0; i < n; i++) {
+                wantedKeyToSpecies.put(species + "#" + i, species);
+            }
+        }
+        Log.info("supervisor", "reconcileCounts â†’ " + wantedKeyToSpecies.keySet());
+
         List<PetHandle> toStop = new ArrayList<>();
         List<PetHandle> toStart = new ArrayList<>();
         synchronized (this) {
-            for (String name : new HashSet<>(live.keySet())) {
-                if (!wantedSet.contains(name)) {
-                    toStop.add(live.remove(name));
+            for (String key : new HashSet<>(live.keySet())) {
+                if (!wantedKeyToSpecies.containsKey(key)) {
+                    toStop.add(live.remove(key));
                 }
             }
-            for (String name : wantedSet) {
-                if (live.containsKey(name)) {
+            for (Map.Entry<String, String> e : wantedKeyToSpecies.entrySet()) {
+                String key = e.getKey();
+                String species = e.getValue();
+                if (live.containsKey(key)) {
                     continue;
                 }
                 try {
-                    Pet pet = PetFactory.create(name);
+                    Pet pet = PetFactory.create(species);
                     pet.paused.set(paused);
                     pet.activityLevel = activityLevel;
                     pet.setSize(petSize);
-                    Thread t = new Thread(pet, "pet-" + name);
+                    Thread t = new Thread(pet, "pet-" + key);
                     t.setDaemon(true);
                     PetHandle h = new PetHandle(pet, t);
-                    live.put(name, h);
+                    live.put(key, h);
                     toStart.add(h);
-                } catch (IllegalArgumentException e) {
-                    Log.warn("supervisor", "skipping unknown pet: " + e.getMessage());
+                } catch (IllegalArgumentException ex) {
+                    Log.warn("supervisor", "skipping unknown pet: " + ex.getMessage());
                 }
             }
         }

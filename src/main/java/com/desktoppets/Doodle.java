@@ -1,5 +1,6 @@
 package com.desktoppets;
 
+import java.awt.Component;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
@@ -26,7 +27,7 @@ import com.github.weisj.jsvg.parser.SVGLoader;
  * {@link Sprites#apply(javax.swing.JLabel, String)} which dispatches to it by
  * key prefix. There is no procedural drawing anymore.
  */
-final class Doodle {
+public final class Doodle {
 
     static final String PREFIX = "doodle:";
 
@@ -38,7 +39,7 @@ final class Doodle {
     private Doodle() {
     }
 
-    static ImageIcon icon(String key, int size) {
+    public static ImageIcon icon(String key, int size) {
         if (size <= 0 || key == null || key.isEmpty()) {
             return null;
         }
@@ -74,7 +75,7 @@ final class Doodle {
                     RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
             g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
             if (source instanceof SVGDocument svg) {
-                svg.render(null, g, new ViewBox(0, 0, k.size, k.size));
+                svg.render((Component) null, g, new ViewBox(0, 0, k.size, k.size));
             }
         } finally {
             g.dispose();
@@ -236,6 +237,9 @@ final class Doodle {
             case "sleep":      return tile("Bird/Idle", 1);
             // Dedicated pixel-art scratch pose (raised wing + motion lines).
             case "scratch":    return "Sprites/Bird/Scratch/scratch.svg";
+            // Knocked-out pose (belly-up, legs in air, impact stars). Used
+            // by Pet.fallOutAndExit when a Bird visitor is hit by a Ball.
+            case "hit":        return "Sprites/Bird/Hit/hit.svg";
             // 2-frame sway dance.
             case "dance":      return tile("Bird/Dance", i % 2);
             default:           return tile("Bird/Idle", 1);

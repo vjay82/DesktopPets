@@ -159,9 +159,20 @@ public abstract class Pet implements Runnable {
      */
     protected double feetYRatio() { return metrics().feetYRatio(); }
 
-    /** Auto-detected geometry of this pet's idle sprite. Cached per JVM. */
+    /** Auto-detected geometry of this pet's idle sprite. Cached per JVM
+     *  in {@link SpriteMetrics}, and again per-instance here so the
+     *  hot-path ratio accessors (called per walk step / per IDLE settle)
+     *  don't keep redoing the {@link Doodle#resolve} string-split and
+     *  per-call concurrent-map lookup. The idle sprite is determined by
+     *  {@link #doodleKind()} which is constant for a pet's lifetime. */
+    private SpriteMetrics.Bounds cachedMetrics;
     private SpriteMetrics.Bounds metrics() {
-        return SpriteMetrics.of(Doodle.resolve(doodleKind() + "/idle/0"));
+        SpriteMetrics.Bounds m = cachedMetrics;
+        if (m == null) {
+            m = SpriteMetrics.of(Doodle.resolve(doodleKind() + "/idle/0"));
+            cachedMetrics = m;
+        }
+        return m;
     }
 
     // ---------------- subclass hooks ----------------
@@ -171,19 +182,43 @@ public abstract class Pet implements Runnable {
 
     /** Idle frames shown by {@link #idle()}. */
     protected List<String> idleFrames() {
-        return List.of(
-                doodleKind() + "/idle/0",
-                doodleKind() + "/idle/1",
-                doodleKind() + "/idle/2");
+        List<String> cached = idleFramesCache;
+        if (cached == null) {
+            cached = List.of(
+                    doodleKind() + "/idle/0",
+                    doodleKind() + "/idle/1",
+                    doodleKind() + "/idle/2");
+            idleFramesCache = cached;
+        }
+        return cached;
     }
 
     protected List<String> walkLeftFrames() {
-        return frames(doodleKind() + "/walk-left", 0, 5);
+        List<String> cached = walkLeftFramesCache;
+        if (cached == null) {
+            cached = frames(doodleKind() + "/walk-left", 0, 5);
+            walkLeftFramesCache = cached;
+        }
+        return cached;
     }
 
     protected List<String> walkRightFrames() {
-        return frames(doodleKind() + "/walk-right", 0, 5);
+        List<String> cached = walkRightFramesCache;
+        if (cached == null) {
+            cached = frames(doodleKind() + "/walk-right", 0, 5);
+            walkRightFramesCache = cached;
+        }
+        return cached;
     }
+
+    /** Lazy caches for the default frame lists — every call site previously
+     *  allocated a fresh {@code List.of(...)} / {@code unmodifiableList}
+     *  wrapper per invocation. The lists are immutable strings derived
+     *  from {@link #doodleKind()} which is constant per pet, so a single
+     *  cached instance is safe for the pet's lifetime. */
+    private volatile List<String> idleFramesCache;
+    private volatile List<String> walkLeftFramesCache;
+    private volatile List<String> walkRightFramesCache;
 
     protected int walkStepDelayMs() { return 10; }
     protected int pixelsPerSpriteStep() { return 16; }
@@ -198,6 +233,42 @@ public abstract class Pet implements Runnable {
 
     /** Per-pixel step delay while running. Default: half the walk delay (min 2). */
     protected int runStepDelayMs() { return Math.max(2, walkStepDelayMs() / 2); }
+
+    /**
+     * Play a brief 3-frame leg-swing animation for a ball kick, in place
+     * of just freezing on {@code walk[0]} for the duration of the kick
+     * (which made the kick visually indistinguishable from standing
+     * still — "ball kicking sprites seem missing"). Cycles through
+     * mid-walk → follow-through → recovery frames in the chosen
+     * direction so a leg is visibly extended at the moment of contact.
+     *
+     * @param kickRight true to use the right-facing walk cycle.
+     * @param totalMs   approximate total animation duration in ms; split
+     *                  evenly across the 3 frames.
+     */
+    protected final void animateKick(boolean kickRight, long totalMs) {
+        List<String> cycle = kickRight ? walkRightFrames() : walkLeftFrames();
+        int n = cycle.size();
+        if (n == 0) {
+            sleepInterruptible(totalMs);
+            return;
+        }
+        // Wind-up: mid-cycle (leg passing under body).
+        // Contact:  one step further (leg extended forward).
+        // Recover:  frame 0 (settled stance).
+        String windup  = cycle.get(Math.min(n - 1, n / 2));
+        String contact = cycle.get(Math.min(n - 1, n / 2 + 1));
+        String recover = cycle.get(0);
+        long slice = Math.max(40L, totalMs / 3);
+        Sprites.apply(petLabel, windup);
+        sleepInterruptible(slice);
+        if (interrupted()) return;
+        Sprites.apply(petLabel, contact);
+        sleepInterruptible(slice);
+        if (interrupted()) return;
+        Sprites.apply(petLabel, recover);
+        sleepInterruptible(slice);
+    }
 
     /** Pixels traversed per sprite-frame swap while running. Default: same as walk. */
     protected int runPixelsPerSpriteStep() { return pixelsPerSpriteStep(); }
@@ -442,10 +513,34 @@ public abstract class Pet implements Runnable {
      * resident pet via {@link #scare(int)}.
      *
      * <p>Defaults to {@code false}; {@link Bird} overrides to {@code true}.
+     * Ground species (Cat/Ducky/Dog) opt in per-instance via
+     * {@link #markAsVisitor()} when {@link PetVisitor} spawns them as a
+     * one-shot guest of the resident pet.
      */
     public boolean isVisitor() {
+        return visitorOverride;
+    }
+
+    /**
+     * Per-instance opt-in to the visitor behaviour loop. Set BEFORE
+     * starting the pet's thread (typically from {@link PetVisitor#trySpawn}).
+     * Has no effect on {@link Bird}, which is always a visitor.
+     */
+    public final void markAsVisitor() {
+        this.visitorOverride = true;
+    }
+
+    /**
+     * Does this species fly? Controls the visitor exit route: fliers swoop
+     * diagonally up and off-screen ({@link Bird} overrides {@link #walkTo}
+     * for diagonal flight); ground pets walk off the side at floor level.
+     * Defaults to false; {@link Bird} overrides to true.
+     */
+    public boolean flies() {
         return false;
     }
+
+    private volatile boolean visitorOverride = false;
 
     /**
      * Set by a hunting resident pet (via {@link Activities#HUNT_BIRD}) to
@@ -456,6 +551,20 @@ public abstract class Pet implements Runnable {
     public final void scare(int sourceX) {
         this.reactionSourceX = sourceX;
         this.scared = true;
+    }
+
+    /**
+     * Knock a visitor pet out of its perch — currently triggered by a
+     * moving {@link Ball} that collides with a perched bird. Sets the
+     * {@link #knockedDown} flag so the visitor loop breaks out and routes
+     * through {@link #fallOutAndExit} (a vertical gravity-style drop off
+     * the bottom of the monitor) instead of the normal
+     * {@link #flyAwayAndExit} swoop. Safe to call from another thread
+     * (e.g. the Ball physics thread).
+     */
+    public final void knockDown(int sourceX) {
+        this.reactionSourceX = sourceX;
+        this.knockedDown = true;
     }
 
     /**
@@ -475,6 +584,12 @@ public abstract class Pet implements Runnable {
     /** Set by {@link #scare(int)} from a hunting pet's thread; read by the
      *  visitor loop to break out of the idle hold and fly off early. */
     public volatile boolean scared = false;
+
+    /** Set by {@link #knockDown(int)} (e.g. from {@link Ball}'s physics
+     *  thread when a rolling ball hits a perched bird); read by the
+     *  visitor loop to break out of the idle hold and route through
+     *  {@link #fallOutAndExit} instead of the normal fly-away. */
+    public volatile boolean knockedDown = false;
 
     /**
      * Default visitor stay window in milliseconds. The actual stay is
@@ -510,6 +625,7 @@ public abstract class Pet implements Runnable {
                 + ThreadLocalRandom.current().nextLong(0, 3_000L);
         while (!Thread.currentThread().isInterrupted()
                 && !scared
+                && !knockedDown
                 && System.currentTimeMillis() < stayUntil) {
             reassertTopmost();
             int r = ThreadLocalRandom.current().nextInt(3);
@@ -530,10 +646,52 @@ public abstract class Pet implements Runnable {
             }
         }
         if (!Thread.currentThread().isInterrupted()) {
-            flyAwayAndExit(world);
+            if (knockedDown) {
+                fallOutAndExit();
+            } else {
+                flyAwayAndExit(world);
+            }
         }
         disposeWindow();
         Log.info("pet:" + name, "visitor departed");
+    }
+
+    /**
+     * Knocked-out-of-perch exit for a visitor pet. The bird (or other
+     * visitor) drops straight down with constant gravity acceleration
+     * until it's fully past the bottom of its monitor, then the caller
+     * disposes the window. Uses no horizontal motion — the impact from
+     * the ball happens at the bird's location and we want the fall to
+     * read as "plucked off the perch" rather than a controlled glide.
+     *
+     * <p>Pet position is allowed to go past the monitor bottom; the
+     * {@link MonitorClipper} inside {@link #moveFrameTo} hides the frame
+     * automatically once it's fully off the screen, so we get a clean
+     * "fell out of view" effect for free.
+     */
+    private void fallOutAndExit() {
+        Rectangle mon = currentMonitorBounds();
+        Point start = logicalLocation();
+        showEmote("bang", 700);
+        // Freeze on a "stunned" pose for the duration of the fall. Birds
+        // have a dedicated belly-up sprite with impact stars
+        // (Sprites/Bird/Hit/hit.svg, wired via Doodle as "bird/hit").
+        // For any other species (in case ground visitors ever become
+        // ball-knockable) Doodle's per-species default falls back to
+        // that species' idle frame, which still reads as "limp" while
+        // the body drops since the sprite doesn't animate.
+        Sprites.apply(petLabel, doodleKind() + "/hit");
+        int targetY = mon.y + mon.height + petSize;
+        double y = start.y;
+        double vy = 0.0;
+        double gravity = 1.6; // px per 16 ms step
+        int x = start.x;
+        while (y < targetY && !Thread.currentThread().isInterrupted()) {
+            vy += gravity;
+            y += vy;
+            moveFrameTo(x, (int) y);
+            sleepInterruptible(16L);
+        }
     }
 
     /**
@@ -557,9 +715,19 @@ public abstract class Pet implements Runnable {
             exitRight = rightDist <= leftDist;
         }
         int exitX = exitRight ? mon.x + mon.width : mon.x - petW;
-        int targetY = Math.max(mon.y, loc.y - Math.max(petW, mon.height / 3));
         showEmote("bang", 250);
-        walkTo(exitX, targetY);
+        if (flies()) {
+            // Diagonal swoop up + off (Bird overrides walkTo to fly).
+            int targetY = Math.max(mon.y, loc.y - Math.max(petW, mon.height / 3));
+            walkTo(exitX, targetY);
+        } else {
+            // Ground visitor: run off the edge of the monitor at floor
+            // level. walkTo with an above-monitor targetY would walk a
+            // ground pet diagonally through midair into the sky, so we
+            // route through runAlongFloor instead (it resamples the
+            // floor each step).
+            runAlongFloor(world, exitX);
+        }
     }
 
     /**
@@ -916,21 +1084,76 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Like {@link #pickEntryPlan} but {@value #SAME_MONITOR_REENTRY_BIAS}
-     * of the time picks the {@code preferred} monitor (typically the one the
-     * pet just left). This keeps DISAPPEAR_REAPPEAR mostly on a single
-     * screen so DPI and size stay consistent, while still occasionally
-     * letting the pet pop up on another monitor for variety.
+     * Like {@link #pickEntryPlan} but biases the re-entry monitor choice
+     * based on how many monitors are available:
+     * <ul>
+     *   <li>Single monitor: trivially same monitor (only option).</li>
+     *   <li>Multi-monitor: {@value #DIFFERENT_MONITOR_REENTRY_CHANCE} of
+     *       the time the pet re-enters on a DIFFERENT monitor than the
+     *       one it just left, so the cross-screen migration is actually
+     *       visible to the user; the remaining fraction it re-enters on
+     *       the same monitor for DPI/size consistency.</li>
+     * </ul>
+     * Previously this used an 80% same-monitor bias plus an unconditional
+     * random pick across all monitors, which on a typical 2-monitor
+     * setup meant only ~10% of disappear/reappear events actually
+     * switched screens — making it feel like pets never leave their
+     * monitor.
      */
     private EntryPlan pickReentryPlan(Rectangle preferred, Rectangle primary) {
-        if (preferred != null
-                && ThreadLocalRandom.current().nextDouble() < SAME_MONITOR_REENTRY_BIAS) {
+        java.util.List<Rectangle> all = usableMonitors(primary);
+        if (preferred != null && all.size() > 1
+                && ThreadLocalRandom.current().nextDouble() < DIFFERENT_MONITOR_REENTRY_CHANCE) {
+            java.util.List<Rectangle> others = new java.util.ArrayList<>(all.size() - 1);
+            for (Rectangle b : all) {
+                if (!b.equals(preferred)) {
+                    others.add(b);
+                }
+            }
+            if (!others.isEmpty()) {
+                Rectangle pick = others.get(
+                        ThreadLocalRandom.current().nextInt(others.size()));
+                return entryPlanFor(pick);
+            }
+        }
+        if (preferred != null) {
             return entryPlanFor(preferred);
         }
         return pickEntryPlan(primary);
     }
 
-    private static final double SAME_MONITOR_REENTRY_BIAS = 0.8;
+    /** Fraction of disappear/reappear events that re-enter on a DIFFERENT
+     *  monitor than the one the pet left. Only consulted when multiple
+     *  usable monitors are present; otherwise the pet re-enters on the
+     *  only monitor. Tuned so cross-screen migration is noticeable
+     *  ("oh, the cat is on the other screen now") but the pet still
+     *  spends most of its time on a stable home screen. */
+    private static final double DIFFERENT_MONITOR_REENTRY_CHANCE = 0.6;
+
+    /** Collect the de-duplicated, non-degenerate screen rectangles. Mirrors
+     *  the filtering inside {@link #pickEntryPlan} so re-entry honors the
+     *  same monitor set the entry walk uses. */
+    private static java.util.List<Rectangle> usableMonitors(Rectangle fallback) {
+        java.util.List<Rectangle> usable = new java.util.ArrayList<>();
+        try {
+            for (GraphicsDevice d : GraphicsEnvironment
+                    .getLocalGraphicsEnvironment().getScreenDevices()) {
+                Rectangle b = d.getDefaultConfiguration().getBounds();
+                if (b.width <= 0 || b.height <= 0) continue;
+                boolean dup = false;
+                for (Rectangle u : usable) {
+                    if (u.equals(b)) { dup = true; break; }
+                }
+                if (!dup) usable.add(b);
+            }
+        } catch (Throwable t) {
+            // ignore
+        }
+        if (usable.isEmpty() && fallback != null) {
+            usable.add(fallback);
+        }
+        return usable;
+    }
 
     private EntryPlan entryPlanFor(Rectangle mon) {
         boolean fromRight = ThreadLocalRandom.current().nextBoolean();
@@ -982,7 +1205,20 @@ public abstract class Pet implements Runnable {
             // OPPOSITE fromRight: a bird whose anchor sits to its right
             // (fromRight = true means it swoops from the right side)
             // enters from the upper-right and flies down-left.
-            int lateral = Math.max(petSize, 2 * petSize);
+            //
+            // Geometry: Bird.walkTo lerps Y linearly across the dx steps,
+            // so the descent ANGLE is atan(dy/dx). To get a gentle ~20°
+            // dive (not a near-vertical drop), we want |dx| ≈ dy / tan(20°)
+            // ≈ dy * 2.75. With dy = (targetY - (mon.y - petSize)) — i.e.
+            // the full descent from just above the monitor top to the
+            // floor — that lateral offset is much larger than petSize but
+            // perfectly fine: the entryStart sits off-screen above-and-
+            // beside the monitor and the bird flies in along the diagonal.
+            int verticalDrop = targetY - (mon.y - petSize);
+            // tan(20°) ≈ 0.364 → multiplier ≈ 2.75. Floor at 2× petSize
+            // so very tall monitors still look like a swoop rather than
+            // a line that disappears off-screen.
+            int lateral = Math.max(2 * petSize, (int) Math.round(verticalDrop * 2.75));
             int startX = fromRight ? clampedX + lateral : clampedX - lateral;
             entryStart = new Point(startX, mon.y - petSize);
         } else {
@@ -1269,141 +1505,158 @@ public abstract class Pet implements Runnable {
     private static final int BALL_STEAL_CHANCE_PCT = 25;
 
     /**
-     * Play with a ball across the floor. Each round is a clean cause →
-     * effect sequence:
-     * <ol>
-     *   <li><b>Kick.</b> Pet stands at its current column facing the
-     *       direction of play, plays a {@code paw} bat emote.</li>
-     *   <li><b>Ball flies.</b> The ball rolls (ease-out cubic) from the
-     *       pet's near side to the far side of the frame while the pet
-     *       stays put — you can clearly see the kick has launched the
-     *       ball before the pet moves.</li>
-     *   <li><b>Pet chases.</b> The pet runs after the ball: the frame
-     *       slides toward where the ball now sits, the ball stays at the
-     *       same screen position by decreasing its in-frame x to offset
-     *       the frame's slide, and the walk frames cycle. At the end the
-     *       pet is right next to the ball again, on the OPPOSITE side
-     *       from where it started — ready to kick the other way.</li>
-     * </ol>
-     * Rounds alternate direction so the pet bounces the ball back and
-     * forth. Ball size is ~20\u202F% of the pet and rests at the
-     * sprite's {@link #feetYRatio() feet line} (not the bottom of the
-     * window) so it doesn't float for pets like Ducky that have
-     * transparent padding under the feet. Between rounds a sibling pet
-     * within {@link #BALL_STEAL_RADIUS} has a
-     * {@link #BALL_STEAL_CHANCE_PCT}\u202F% chance to steal it. Restores
-     * {@link Need#BOREDOM}.
+     * Kick the ball out into the world: the pet shows the {@code paw} bat
+     * emote and spawns a new standalone {@link Ball} window at its side
+     * with an outward impulse. The Ball is a world object — once spawned,
+     * every nearby pet (see {@link Ball#INTEREST_RADIUS}) sees it via
+     * {@link Ball#active()} and will run to chase / re-kick it via
+     * {@link #chaseBall}; a multi-pet scrum emerges naturally. The
+     * follow-up chase is driven by {@link BehaviorEngine}, which on every
+     * tick checks for an active ball before falling through to normal
+     * activity selection.
+     *
+     * <p>Ball size scales with the pet (~30\u202F% of {@code petSize}) and
+     * its bottom is aligned to the pet's feet line so it rests on the
+     * same surface (desktop, taskbar, or topmost window top) the pet is
+     * standing on. Restores {@link Need#BOREDOM}; the chase loop adds more
+     * each kick.
      */
     public void playBall(World world) {
-        final int ballSize = Math.max(8, (int) (petSize * 0.20));
-        final int ballLocalLeft  = 0;
-        final int ballLocalRight = petSize - ballSize;
-        // Ball sits at the pet's feet line (not flush with the bottom of
-        // the frame) - some sprites (e.g. Ducky) have transparent padding
-        // below the feet inside the viewBox, and pinning the ball to that
-        // padding makes it float visibly below the sprite.
-        final int feetH = Math.max(1, (int) Math.round(petSize * feetYRatio()));
-        final int floorYInFrame = Math.max(0, feetH - ballSize);
-        // Kick is fast (ball launches) and chase is a touch slower
-        // (running takes effort). Both at ~60 FPS via 16 ms steps.
-        final int kickSubSteps = 16;
-        final int chaseSubSteps = 24;
-        final long stepMs = 16L;
-        final int rounds = 6;
-
-        List<String> leftFrames  = walkLeftFrames();
-        List<String> rightFrames = walkRightFrames();
+        // Don't double-spawn: if a ball already exists, just chase it.
+        Ball existing = Ball.active();
+        if (existing != null) {
+            chaseBall(world, existing);
+            return;
+        }
 
         Rectangle mon = currentMonitorBounds();
-        Point startLoc = logicalLocation();
         int petW = effectiveWidth();
-        // Pet starts at its current column, clamped onto the monitor.
-        int petX = Math.max(mon.x, Math.min(mon.x + mon.width - petW, startLoc.x));
-        moveFrameTo(petX, floorYAt(world, petX));
+        Point myLoc = logicalLocation();
+        int myMid = myLoc.x + petW / 2;
 
-        for (int i = 0; i < rounds; i++) {
-            if (interrupted()) { clearProp(); return; }
+        // Ball is ~30% of pet size so it's clearly visible at any scale
+        // but still reads as "kickable object next to the pet".
+        int ballSize = Math.max(16, (int) (petSize * 0.30));
 
-            // Between rounds, give a nearby sibling a chance to snatch the
-            // ball. Skip on the very first iteration so the ball at least
-            // appears once before the steal can fire.
-            if (i > 0) {
-                Pet thief = nearestOtherPet(BALL_STEAL_RADIUS);
-                if (thief != null
-                        && ThreadLocalRandom.current().nextInt(100) < BALL_STEAL_CHANCE_PCT) {
-                    Sprites.apply(petLabel, idleFrames().get(0));
-                    showEmote("bang", 500);
-                    int myMid = logicalLocation().x + petSize / 2;
-                    thief.requestReaction(Reaction.STEAL_BALL, 8_000L, myMid);
-                    clearProp();
-                    // BOREDOM is partly drained \u2014 we did play, just briefly.
-                    needs.add(Need.BOREDOM, 40);
-                    return;
-                }
+        // Kick AWAY from the closest monitor edge so the ball has runway
+        // to roll across the screen instead of immediately wall-bouncing.
+        boolean kickRight = (myMid - mon.x) < (mon.x + mon.width - myMid);
+
+        // Spawn the ball at the pet's feet, just outside the pet's frame
+        // on the kick side. yFloor = the pet's current feet Y so the
+        // ball's bottom rests on the same surface (desktop / taskbar /
+        // window top) the pet is standing on.
+        int feetH = Math.max(1, (int) Math.round(petSize * feetYRatio()));
+        int feetY = myLoc.y + feetH;
+        int ballX = kickRight ? myLoc.x + petW : myLoc.x - ballSize;
+
+        // Face the ball and bat-emote BEFORE spawning the ball so the
+        // cause→effect reads correctly: paw out, then ball appears and
+        // launches. animateKick cycles through mid/contact/recover walk
+        // frames so the leg-swing is visible (was just frozen walk[0]).
+        showEmote("paw", 220);
+        animateKick(kickRight, 180);
+        if (interrupted()) return;
+
+        Ball ball = Ball.spawn(mon, ballX, feetY, ballSize,
+                (int) screen.getWidth(), (int) screen.getHeight());
+        double impulse = (kickRight ? 1 : -1)
+                * (700 + ThreadLocalRandom.current().nextDouble(0, 500));
+        ball.kick(impulse);
+        needs.add(Need.BOREDOM, 25);
+        // Don't enter chase here — BehaviorEngine's per-tick ball bypass
+        // will route THIS pet (and every other nearby one) into chaseBall
+        // on the next tick, so the soccer scrum is uniform.
+    }
+
+    /**
+     * Chase / kick the active world-object {@link Ball}: run toward the
+     * ball's current column, and when within kick range bat it away with
+     * the {@code paw} emote. Direction of kick is biased toward another
+     * pet if one is in range (so the ball bounces between players like
+     * soccer), else just in the pet's facing direction.
+     *
+     * <p>This method runs ONE chase segment per call (either a run or a
+     * kick) and returns; {@link BehaviorEngine}'s per-tick ball bypass
+     * keeps re-invoking it as long as the ball exists and this pet is
+     * still interested, so multiple pets can interleave kicks naturally.
+     */
+    public final void chaseBall(World world, Ball ball) {
+        ball.noteInterest();
+        int petW = effectiveWidth();
+        int myMid = logicalLocation().x + petW / 2;
+        int ballMid = ball.centerX();
+        int kickRange = petW / 2 + ball.width() / 2 + 6;
+        int dx = ballMid - myMid;
+
+        if (Math.abs(dx) <= kickRange) {
+            boolean ballMovingAway =
+                    (dx > 0 && ball.vx() > 0) || (dx < 0 && ball.vx() < 0);
+            if (ballMovingAway && !ball.isAtRest()) {
+                // Ball is fleeing — let it; just face it and pause briefly.
+                Sprites.apply(petLabel,
+                        (dx >= 0 ? walkRightFrames() : walkLeftFrames()).get(0));
+                sleepInterruptible(120);
+                return;
             }
-
-            boolean goingRight = (i % 2 == 0);
-            List<String> facingFrames = goingRight ? rightFrames : leftFrames;
-            // Ball starts on the pet's near side (where the foot meets
-            // the ball at the moment of contact) and is kicked AWAY across
-            // the frame to the far side.
-            int ballStart = goingRight ? ballLocalLeft  : ballLocalRight;
-            int ballEnd   = goingRight ? ballLocalRight : ballLocalLeft;
-
-            // Face the direction of play; freshen pet's floor Y (the
-            // taskbar / underlying window may have moved between rounds).
-            moveFrameTo(petX, floorYAt(world, petX));
-            Sprites.apply(petLabel, facingFrames.get(0));
-            showProp("prop/ball");
-            final int fb0 = ballStart;
-            onEdt(() -> propLabel.setBounds(fb0, floorYInFrame, ballSize, ballSize));
-            showEmote("paw", 220);
-            if (interrupted()) { clearProp(); return; }
-
-            // --- Phase A: ball flies. Pet stays put; ball rolls across
-            // the frame with ease-out cubic so the kick reads as a burst
-            // of speed that bleeds off into a slow finish.
-            for (int s = 1; s <= kickSubSteps; s++) {
-                if (interrupted()) { clearProp(); return; }
-                double t = (double) s / kickSubSteps;
-                double eased = 1.0 - Math.pow(1.0 - t, 3.0);
-                int ballLocal = (int) Math.round(ballStart + (ballEnd - ballStart) * eased);
-                final int fx = ballLocal;
-                onEdt(() -> propLabel.setBounds(fx, floorYInFrame, ballSize, ballSize));
-                sleepInterruptible(stepMs);
+            // Kick! Direction: toward the nearest other pet if any, else
+            // continue rolling the ball further in its current direction
+            // (or, if at rest, away from the closest monitor edge).
+            boolean kickRight;
+            Pet target = nearestOtherPet(Ball.INTEREST_RADIUS);
+            if (target != null) {
+                int targetMid =
+                        target.logicalLocation().x + target.effectiveWidth() / 2;
+                kickRight = targetMid > ballMid;
+            } else if (!ball.isAtRest()) {
+                kickRight = ball.vx() > 0;
+            } else {
+                Rectangle mon = currentMonitorBounds();
+                kickRight = (ballMid - mon.x) < (mon.x + mon.width - ballMid);
             }
-
-            // --- Phase B: pet runs after the ball.
-            // The ball now sits at screen-x = petX + ballEnd. We slide
-            // the frame toward that side; clamped to monitor so the pet
-            // can't run off-screen. The ball stays at the same SCREEN x
-            // by decreasing its in-frame x by the same amount the frame
-            // moves.
-            int dx = ballEnd - ballStart; // +ve right, -ve left
-            int chaseFromX = petX;
-            int chaseToX = Math.max(mon.x,
-                    Math.min(mon.x + mon.width - petW, petX + dx));
-            int actualDx = chaseToX - chaseFromX;
-            int ballScreenX = chaseFromX + ballEnd;
-            int frameIdx = 0;
-            for (int s = 1; s <= chaseSubSteps; s++) {
-                if (interrupted()) { clearProp(); return; }
-                double t = (double) s / chaseSubSteps;
-                int petCurX = chaseFromX + (int) Math.round(actualDx * t);
-                int petCurY = floorYAt(world, petCurX);
-                moveFrameTo(petCurX, petCurY);
-                int ballLocal = Math.max(0,
-                        Math.min(petSize - ballSize, ballScreenX - petCurX));
-                final int fx = ballLocal;
-                onEdt(() -> propLabel.setBounds(fx, floorYInFrame, ballSize, ballSize));
-                Sprites.apply(petLabel, facingFrames.get(frameIdx % facingFrames.size()));
-                frameIdx++;
-                sleepInterruptible(stepMs);
-            }
-            petX = chaseToX;
+            Sprites.apply(petLabel,
+                    (kickRight ? walkRightFrames() : walkLeftFrames()).get(0));
+            showEmote("paw", 180);
+            double impulse = (kickRight ? 1 : -1)
+                    * (600 + ThreadLocalRandom.current().nextDouble(0, 500));
+            // 3-frame leg-swing wind-up before the impulse, so the kick
+            // VISIBLY swings a leg instead of just freezing on walk[0]
+            // ("ball kicking sprites seem missing"). The ball launches
+            // on the contact frame.
+            animateKick(kickRight, 180);
+            ball.kick(impulse);
+            needs.add(Need.BOREDOM, 12);
+            sleepInterruptible(80);
+            return;
         }
-        needs.add(Need.BOREDOM, 100);
-        clearProp();
+
+        // Not close enough — run toward the ball's current column.
+        Rectangle mon = currentMonitorBounds();
+        int targetX = ballMid - petW / 2;
+        targetX = Math.max(mon.x, Math.min(mon.x + mon.width - petW, targetX));
+        runAlongFloor(world, targetX);
+    }
+
+    /**
+     * True if this pet is eligible to chase the given {@link Ball} on its
+     * next tick: same monitor, within {@link Ball#INTEREST_RADIUS} of the
+     * ball's center, not a visitor (visitors have their own behaviour
+     * loop), not currently hovered/clicked, and no need is urgent (urgent
+     * self-care always wins over play). Birds are excluded because they
+     * fly — kicking a ball with a beak from above looks silly and would
+     * need its own animation pass.
+     */
+    public final boolean canChaseBall(Ball ball) {
+        if (ball == null || ball.isDisposed()) return false;
+        if (isVisitor()) return false;
+        if (this instanceof Bird) return false;
+        if (hovered || clicked) return false;
+        if (needs.lowestBelow(15.0) != null) return false;
+        Rectangle myMon = currentMonitorBounds();
+        Rectangle bm = ball.monitor();
+        if (myMon.x != bm.x || myMon.y != bm.y) return false;
+        int myMid = logicalLocation().x + effectiveWidth() / 2;
+        return Math.abs(myMid - ball.centerX()) <= Ball.INTEREST_RADIUS;
     }
 
     /** Default: idle with hearts. Hover satisfies the underlying need. */
@@ -1826,6 +2079,31 @@ public abstract class Pet implements Runnable {
         int jumpStep = 0;
         int jumpSpan = 0;
         int jumpPeak = petH / 2;
+        // The pet is pinned to {@link #activeMonitor} for the duration of
+        // the walk (moveFrameTo clips to it; the pet can't cross monitors
+        // mid-walk), so the work-area bottom is constant across all
+        // pixel-steps. Sample it ONCE here rather than calling
+        // {@link #monitorBottomAtColumn(int)} per step — that method
+        // iterates every GraphicsDevice and calls AWT
+        // {@code getScreenInsets}, which on Windows reaches into the
+        // shell. For a 600-px walk this is 600 native calls; now it's 1.
+        //
+        // Use the destination column when it lies on a real monitor (the
+        // common case — callers clamp targetX to the monitor); otherwise
+        // fall back to the start column. For off-monitor exit walks
+        // (disappear-reappear) the frame is hidden by moveFrameTo before
+        // the cap matters, so even a primary-monitor fallback is safe.
+        int monBottomCap;
+        {
+            Rectangle am = activeMonitor;
+            int probeX = targetX;
+            if (am != null) {
+                int amHi = am.x + am.width - 1;
+                if (probeX < am.x) probeX = am.x;
+                else if (probeX > amHi) probeX = amHi;
+            }
+            monBottomCap = monitorBottomAtColumn(probeX) - feetH;
+        }
 
         for (int i = 1; i <= steps; i++) {
             // A jump arc, once started, must run to completion: bailing
@@ -1847,9 +2125,8 @@ public abstract class Pet implements Runnable {
             int signedStep = goingRight ? i : -i;
             int x = start.x + signedStep;
             int y = world.floorY(feetH, x, petW, currentFeetY);
-            int monMaxY = monitorBottomAtColumn(x) - feetH;
-            if (y > monMaxY) {
-                y = monMaxY;
+            if (y > monBottomCap) {
+                y = monBottomCap;
             }
             // --- sibling-pet collision ---
             Pet ahead = collidesWithOtherPet(x, y, petW, feetH);

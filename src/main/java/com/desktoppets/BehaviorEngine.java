@@ -81,6 +81,18 @@ public final class BehaviorEngine {
                 continue;
             }
 
+            // World-object soccer ball: any pet on the same monitor and
+            // within range chases it before normal activity selection,
+            // bypassing the usual cooldown / forced-rest gating so the
+            // scrum stays lively while the ball is in play. The bypass
+            // skips when the pet has an urgent need (handled inside
+            // canChaseBall) so self-care still wins over play.
+            Ball ball = Ball.active();
+            if (ball != null && pet.canChaseBall(ball)) {
+                pet.chaseBall(world, ball);
+                continue;
+            }
+
             Activity chosen = pick(world);
 
             if (pet.clicked) {
