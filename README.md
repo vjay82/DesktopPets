@@ -8,6 +8,10 @@ Animated desktop pets (Ducky, Cat, Bird) written in Java Swing.
 .
 ├── pom.xml
 ├── config.txt                # runtime config (read from working dir)
+├── art-source/
+│   └── Sprites/              # PNG source art + sheet companions
+│                             # (NOT packaged into the jar; converted to
+│                             #  runtime SVGs via tools/PngToSvg)
 └── src/
     └── main/
         ├── java/
@@ -18,10 +22,13 @@ Animated desktop pets (Ducky, Cat, Bird) written in Java Swing.
         │       ├── Cat.java
         │       └── Ducky.java
         └── resources/
-            └── Sprites/      # PNG sprite sheets (bundled into the jar)
+            └── Sprites/      # Runtime SVG sprites (bundled into the jar)
 ```
 
-Sprites are loaded from the classpath and are packaged inside the jar.
+Sprites are loaded from the classpath as SVGs and packaged inside the jar.
+The original PNG source art lives under `art-source/Sprites/` and is *not*
+bundled — it's only consumed by `com.desktoppets.tools.PngToSvg`, which
+regenerates the runtime SVGs into `src/main/resources/Sprites/`.
 `config.txt` is read with a relative path from the working directory,
 so it must remain at the directory from which the program is launched
 (the project root by default).

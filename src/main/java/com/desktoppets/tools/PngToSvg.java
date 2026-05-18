@@ -13,22 +13,38 @@ import java.util.stream.Stream;
  * Each opaque pixel becomes part of a horizontal run-length-encoded &lt;rect&gt;.
  * Transparent pixels (alpha &lt; 8) are skipped. Result scales crisply at any size
  * when rendered with shape-rendering="crispEdges".
+ *
+ * <p>Usage:
+ * <pre>
+ *   java ... PngToSvg [inputRoot] [outputRoot]
+ * </pre>
+ * Defaults: {@code inputRoot = art-source/Sprites} (PNG source art, not packaged
+ * into the jar), {@code outputRoot = src/main/resources/Sprites} (runtime SVGs).
+ * The relative path of each PNG under {@code inputRoot} is mirrored into
+ * {@code outputRoot} so generated SVGs land directly in the resources tree.
  */
 public final class PngToSvg {
     private PngToSvg() {}
 
     public static void main(String[] args) throws IOException {
-        Path root = Paths.get(args.length > 0 ? args[0] : "src/main/resources/Sprites");
-        if (!Files.isDirectory(root)) {
-            System.err.println("Not a directory: " + root.toAbsolutePath());
+        Path inRoot  = Paths.get(args.length > 0 ? args[0] : "art-source/Sprites");
+        Path outRoot = Paths.get(args.length > 1 ? args[1] : "src/main/resources/Sprites");
+        if (!Files.isDirectory(inRoot)) {
+            System.err.println("Not a directory: " + inRoot.toAbsolutePath());
             System.exit(1);
         }
+        Files.createDirectories(outRoot);
         int[] counts = {0, 0};
-        try (Stream<Path> walk = Files.walk(root)) {
+        try (Stream<Path> walk = Files.walk(inRoot)) {
             walk.filter(p -> p.toString().toLowerCase(Locale.ROOT).endsWith(".png"))
                 .forEach(p -> {
                     try {
-                        Path out = p.resolveSibling(stripExt(p.getFileName().toString()) + ".svg");
+                        Path rel = inRoot.relativize(p);
+                        String svgName = stripExt(rel.getFileName().toString()) + ".svg";
+                        Path relParent = rel.getParent();
+                        Path outDir = relParent == null ? outRoot : outRoot.resolve(relParent);
+                        Files.createDirectories(outDir);
+                        Path out = outDir.resolve(svgName);
                         convert(p, out);
                         counts[0]++;
                     } catch (Exception ex) {
@@ -37,7 +53,8 @@ public final class PngToSvg {
                     }
                 });
         }
-        System.out.println("Converted " + counts[0] + " files (" + counts[1] + " failed) under " + root);
+        System.out.println("Converted " + counts[0] + " files (" + counts[1]
+                + " failed) from " + inRoot + " -> " + outRoot);
     }
 
     static String stripExt(String name) {

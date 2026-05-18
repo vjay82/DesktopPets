@@ -383,6 +383,14 @@ public final class Win32 {
      * with {@code SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE}. Idempotent and
      * cheap; safe to call every behavior tick to keep pet windows from being
      * demoted out of the topmost band by other apps.
+     *
+     * <p>Important: we first check {@code WS_EX_TOPMOST} on the window and
+     * skip the {@code SetWindowPos} call if it's already set. Calling
+     * {@code SetWindowPos(HWND_TOPMOST)} on a window that's already topmost
+     * still re-orders it to the FRONT of the topmost band — so two pet
+     * frames whose paths overlap will keep flipping each other to the back
+     * each tick, producing a visible flicker. Only the rare actual demotion
+     * (from another app) needs the SetWindowPos call.
      */
     public static void reassertTopmost(long hwnd) {
         if (!WINDOWS || hwnd == 0L) {
@@ -390,6 +398,12 @@ public final class Win32 {
         }
         try {
             MemorySegment h = MemorySegment.ofAddress(hwnd);
+            long exStyle = (long) GET_WINDOW_LONG_PTR.invoke(h, GWL_EXSTYLE);
+            if ((exStyle & WS_EX_TOPMOST) != 0L) {
+                // Already topmost — don't re-front it, that's what causes
+                // the per-tick z-order war between overlapping pets.
+                return;
+            }
             // HWND_TOPMOST = -1 ; flags = SWP_NOMOVE(0x2)|SWP_NOSIZE(0x1)|SWP_NOACTIVATE(0x10) = 0x13
             SET_WINDOW_POS.invoke(h, MemorySegment.ofAddress(-1L), 0, 0, 0, 0, 0x13);
         } catch (Throwable t) {

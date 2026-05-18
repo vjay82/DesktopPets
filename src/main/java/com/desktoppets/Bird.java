@@ -5,9 +5,14 @@ import java.awt.Rectangle;
 import java.util.List;
 
 /**
- * The skittish bird. Flies diagonally instead of walking horizontally; via
- * its Personality bias it ignores the foreground-window "climb" activity
- * entirely (a bird wouldn't perch on a moving window).
+ * The skittish bird. No longer a resident pet — birds are now <em>visitor
+ * pets</em> spawned ad-hoc by {@link BirdVisitor} near an existing
+ * resident pet, where they perch for a few seconds before flying off on
+ * their own (or being scared away by a hunting resident via
+ * {@link Activities#HUNT_BIRD}). The bird flies diagonally instead of
+ * walking horizontally; via its Personality bias it also ignores the
+ * foreground-window "climb" activity entirely (a bird wouldn't perch on a
+ * moving window) for the visitor-loop's preen / look phases.
  */
 public final class Bird extends Pet {
 
@@ -15,7 +20,13 @@ public final class Bird extends Pet {
         super("bird", Personality.bird());
     }
 
+    @Override public boolean isVisitor() { return true; }
+
     @Override protected String doodleKind() { return "bird"; }
+
+    @Override public String[] sounds() {
+        return new String[] { "Tweet!", "Chirp!", "Cheep!", "Tweedle!" };
+    }
     @Override protected int walkStepDelayMs() { return 8; }
 
     // Bird sprite sits middle-bottom of its 32-viewBox (body ~x=13-18, head top ~y=19).
@@ -110,5 +121,16 @@ public final class Bird extends Pet {
             }
         }
         walkTo(targetX, targetY);
+    }
+
+    /**
+     * Birds don't have a separate "run" gait — they fly. Forwarding to
+     * {@link #walkAlongFloor} keeps hunting / fleeing on a bird looking
+     * like aggressive flight rather than awkwardly switching to a non-
+     * existent ground sprint.
+     */
+    @Override
+    public void runAlongFloor(World world, int targetX) {
+        walkAlongFloor(world, targetX);
     }
 }

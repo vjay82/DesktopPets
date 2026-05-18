@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" shape-rendering="crispEdges">
+<!-- Pixel-art "lick" emote: a small pink tongue with a few cream droplets,
+     used by LICK_PET and LICK_EDGE to telegraph the action. The tongue is
+     shaped as a rounded teardrop pointing down-left to read as a tongue
+     reaching out of a mouth toward whatever is to the pet's left. The
+     droplets above suggest motion. -->
+<!-- Tongue outline (deep pink) -->
+<rect x="8"  y="6"  width="6" height="1" fill="#a8324a"/>
+<rect x="7"  y="7"  width="1" height="6" fill="#a8324a"/>
+<rect x="14" y="7"  width="1" height="6" fill="#a8324a"/>
+<rect x="8"  y="13" width="1" height="2" fill="#a8324a"/>
+<rect x="13" y="13" width="1" height="2" fill="#a8324a"/>
+<rect x="9"  y="15" width="1" height="2" fill="#a8324a"/>
+<rect x="12" y="15" width="1" height="2" fill="#a8324a"/>
+<rect x="10" y="17" width="2" height="1" fill="#a8324a"/>
+<!-- Tongue fill (bright pink) -->
+<rect x="8"  y="7"  width="6" height="6" fill="#f06a8a"/>
+<rect x="9"  y="13" width="4" height="2" fill="#f06a8a"/>
+<rect x="10" y="15" width="2" height="2" fill="#f06a8a"/>
+<!-- Center groove (classic tongue split, slightly darker) -->
+<rect x="10" y="8"  width="2" height="1" fill="#d44868"/>
+<rect x="10" y="10" width="2" height="1" fill="#d44868"/>
+<rect x="10" y="12" width="2" height="1" fill="#d44868"/>
+<!-- Specular highlight (top-left, lighter pink) -->
+<rect x="9"  y="7"  width="2" height="1" fill="#ffb0c4"/>
+<rect x="9"  y="8"  width="1" height="2" fill="#ffb0c4"/>
+<!-- Two cream droplets above the tongue (motion / wetness) -->
+<rect x="5"  y="3"  width="1" height="1" fill="#f7eede"/>
+<rect x="4"  y="4"  width="1" height="1" fill="#f7eede"/>
+<rect x="17" y="4"  width="1" height="1" fill="#f7eede"/>
+<rect x="18" y="5"  width="1" height="1" fill="#f7eede"/>
+</svg>

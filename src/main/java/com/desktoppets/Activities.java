@@ -45,6 +45,18 @@ public final class Activities {
             },
             (pet, world) -> pet.eat());
 
+    /**
+     * Mirror of {@link #EAT} but for {@link Need#THIRST}. Same priority
+     * shape so a thirsty pet behaves identically to a hungry one: thought
+     * bubble first, then a water-bowl prop, then the gauge is restored.
+     */
+    public static final Activity DRINK = new Activity("drink",
+            (pet, world) -> {
+                double t = pet.needs.get(Need.THIRST);
+                return t < 30 ? 90 - t : 0;
+            },
+            (pet, world) -> pet.drink());
+
     public static final Activity SEEK_PETTING = new Activity("seek-petting",
             (pet, world) -> {
                 double a = pet.needs.get(Need.AFFECTION);
@@ -68,18 +80,12 @@ public final class Activities {
                 return b < 35 ? 60 - b : 0.5;
             },
             (pet, world) -> {
-                Rectangle bar = world.taskbar();
-                if (bar != null) {
-                    // Use floorY so feet land on the taskbar top rather than
-                    // the full frame extending past it (sprites have foot
-                    // padding inside their viewBox — see Pet.clampToScreen).
-                    // logicalLocation() (not frame.getX()) so a pet that's
-                    // currently edge-clipped doesn't snap to its clipped X.
-                    int x = pet.logicalLocation().x;
-                    int targetY = pet.floorYAt(world, x);
-                    pet.moveFrameTo(x, Math.max(0, targetY));
-                }
-                pet.playBall();
+                // playBall now patrols a span on the floor itself; it
+                // picks its own start column relative to the pet's current
+                // position, clamps to the active monitor, and recomputes
+                // floorY each sub-step as the pet runs. We just hand it
+                // the world.
+                pet.playBall(world);
             });
 
     /** Fraction of WANDER picks that aim for an existing window's column. */
@@ -212,6 +218,36 @@ public final class Activities {
             (pet, world) -> World.cursorPos() != null ? 0.6 : 0,
             (pet, world) -> pet.stalkPointer(world));
 
+    /**
+     * Predator instinct: if the user has been fiddling with the cursor
+     * (substantial motion in the last few seconds) and it is currently
+     * within reach on the pet's own monitor, the pet decides to hunt it
+     * for a while. Priority ramps with recent cursor motion magnitude so
+     * incidental drift doesn't trigger it. Gated by a long cooldown in
+     * {@link BehaviorEngine} so the pet doesn't perpetually chase the
+     * mouse during normal use.
+     */
+    public static final Activity HUNT_CURSOR = new Activity("hunt-cursor",
+            (pet, world) -> {
+                java.awt.Point c = World.cursorPos();
+                if (c == null) return 0;
+                Rectangle mon = pet.currentMonitorBounds();
+                if (!mon.contains(c)) return 0;
+                int petW = pet.effectiveWidth();
+                int petMid = pet.logicalLocation().x + petW / 2;
+                int reach = Math.max(300, petW * 5);
+                if (Math.abs(c.x - petMid) > reach) return 0;
+                int motion = World.cursorMotionPx(3_000L);
+                if (motion < 120) return 0;
+                // Ramps from ~2.0 at threshold up to ~5.0 with heavy
+                // fiddling so HUNT_CURSOR reliably wins the ambient
+                // weighted-random lottery against IDLE + the ~30 other
+                // candidates. Previously capped at 1.8 → easily lost to
+                // the sum of competing weights.
+                return Math.min(5.0, 2.0 + motion / 400.0);
+            },
+            (pet, world) -> pet.huntCursor(world));
+
     /** Cat: leap onto a higher perch within range. */
     public static final Activity HIGH_PERCH_LEAP = new Activity("high-perch-leap",
             (pet, world) -> 0.5,
@@ -224,6 +260,26 @@ public final class Activities {
                 return 0.4 + Math.max(0, (50 - a) * 0.01);
             },
             (pet, world) -> pet.grooming());
+
+    /**
+     * Generic itch-scratch beat. Available to every resident species so any
+     * pet can pause for a quick scratch — priority is mid-range so it
+     * doesn't preempt social or need-driven activities but happily fills
+     * an otherwise-idle moment. Cooldown in {@link BehaviorEngine}.
+     */
+    public static final Activity SCRATCH = new Activity("scratch",
+            (pet, world) -> 0.45,
+            (pet, world) -> pet.scratch());
+
+    /**
+     * Spontaneous dance — a multi-beat sway loop with a music-note emote.
+     * Available to every resident species. Slightly higher base priority
+     * than scratch because it's the showpiece animation; the cooldown in
+     * {@link BehaviorEngine} keeps it from dominating.
+     */
+    public static final Activity DANCE = new Activity("dance",
+            (pet, world) -> 0.5,
+            (pet, world) -> pet.dance());
 
     /** Cat: long-cooldown "knock something off the desk" moment. */
     public static final Activity KNOCK_SOMETHING_OFF = new Activity("knock-something-off",
@@ -394,16 +450,385 @@ public final class Activities {
                 pet.showEmote("bang", 400);
             });
 
+    /**
+     * Active predator/prey play: hunter signals the nearest sibling to flee
+     * (via {@link Pet#requestReaction Reaction.FLEE}) and then sprints toward
+     * its current column. The prey's own engine consumes the reaction on its
+     * next tick and runs away across the monitor, so the resulting visual is
+     * one pet chasing the other through whatever it was previously doing.
+     *
+     * <p>Distinct from {@link #CHASE_PET}: chase just runs up and bangs the
+     * sibling (who carries on with whatever they were doing); hunt explicitly
+     * scares the sibling into a counter-walk so both pets are in motion.
+     */
+    public static final Activity HUNT_PET = new Activity("hunt-pet",
+            (pet, world) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.4 : 0,
+            (pet, world) -> {
+                Pet prey = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (prey == null) return;
+                int hunterMidX = pet.logicalLocation().x + pet.effectiveWidth() / 2;
+                // Tell prey to flee BEFORE we start moving so its engine
+                // picks up the reaction on its next tick and starts running
+                // first — otherwise we'd catch it standing still.
+                prey.requestReaction(Pet.Reaction.FLEE, 6_000L, hunterMidX);
+                pet.showEmote("target", 350);
+                // Tiny beat so the prey's flee step starts before the
+                // hunter closes the gap (engine ticks ~5 Hz).
+                Pet.sleepInterruptible(250);
+                if (pet.interrupted()) return;
+                int petW = pet.effectiveWidth();
+                int preyMid = prey.logicalLocation().x + prey.effectiveWidth() / 2;
+                int targetX = pet.logicalLocation().x < preyMid
+                        ? preyMid - petW
+                        : preyMid;
+                pet.runAlongFloor(world, targetX);
+            });
+
+    /** How far away (in logical pixels) a resident pet will notice and
+     *  start chasing a visiting bird. Generous because the bird itself
+     *  is the rare event and we want the chase to fire reliably. */
+    private static final int BIRD_HUNT_RADIUS = 800;
+
+    /**
+     * Run toward a visiting bird and scare it off. Distinct from
+     * {@link #HUNT_PET}: residents never sit on each other's hunt cooldown
+     * for chasing a bird, and the prey here ({@link Bird}) is a
+     * visitor pet that self-disposes on {@link Pet#scare(int)} instead of
+     * fleeing across the monitor. Priority is high so this preempts
+     * ambient activities while the bird is on screen \u2014 you only get
+     * one shot at the bird before it flies off on its own.
+     */
+    public static final Activity HUNT_BIRD = new Activity("hunt-bird",
+            (pet, world) -> pet.nearestVisitor(BIRD_HUNT_RADIUS) != null ? 3.5 : 0,
+            (pet, world) -> {
+                Pet bird = pet.nearestVisitor(BIRD_HUNT_RADIUS);
+                if (bird == null) return;
+                int petW = pet.effectiveWidth();
+                int birdMid = bird.logicalLocation().x + bird.effectiveWidth() / 2;
+                // Stop one body-width short of the bird so we don't visually
+                // overlap; landing-side determined by approach direction.
+                int targetX = pet.logicalLocation().x < birdMid
+                        ? birdMid - petW - petW / 2
+                        : birdMid + petW / 2;
+                pet.showEmote("target", 350);
+                pet.runAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                int hunterMid = pet.logicalLocation().x + petW / 2;
+                // Trigger the bird's take-off; its visitor loop consumes
+                // the flag on its next beat and flies off the opposite
+                // monitor edge, then disposes itself.
+                bird.scare(hunterMid);
+                pet.showEmote("bang", 400);
+            });
+
+    /**
+     * Curiosity activity: walk up to the nearest sibling pet, sniff them
+     * (a {@code paw} emote held for ~800 ms), then either sit beside them
+     * (50%) or wander a few body-widths away (50%). Distinct from
+     * {@link #GREET_PET} \u2014 greet always sits and shows a heart; sniff
+     * is investigative and may end with the pet walking off.
+     */
+    public static final Activity SNIFF = new Activity("sniff",
+            (pet, world) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.55 : 0,
+            (pet, world) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                // Stop one body-width away on the same side we approached from
+                // so we don't overlap the sniffee.
+                int targetX = pet.logicalLocation().x < otherMid
+                        ? otherMid - other.effectiveWidth() / 2 - petW
+                        : otherMid + other.effectiveWidth() / 2;
+                pet.runAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.showEmote("paw", 800);
+                Pet.sleepInterruptible(800);
+                if (pet.interrupted()) return;
+                if (java.util.concurrent.ThreadLocalRandom.current().nextBoolean()) {
+                    pet.sit();
+                } else {
+                    Rectangle mon = pet.currentMonitorBounds();
+                    int dir = (pet.logicalLocation().x < otherMid) ? -1 : 1;
+                    int away = pet.logicalLocation().x + dir * petW * 3;
+                    away = Math.max(mon.x, Math.min(mon.x + mon.width - petW, away));
+                    pet.walkAlongFloor(world, away);
+                }
+            });
+
+    /**
+     * Playful bump: pet walks up to the nearest sibling, both pets show a
+     * {@code bang} emote (the contact), then the nudger trots two body-widths
+     * back the way it came. Distinct from {@link #SNIFF} (which is
+     * investigative) and {@link #CHASE_PET} (which doesn't touch).
+     */
+    public static final Activity NUDGE = new Activity("nudge",
+            (pet, world) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.3 : 0,
+            (pet, world) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < otherMid;
+                int targetX = fromLeft
+                        ? otherMid - other.effectiveWidth() / 2 - petW
+                        : otherMid + other.effectiveWidth() / 2;
+                pet.walkAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.showEmote("bang", 500);
+                other.showEmote("bang", 500);
+                Pet.sleepInterruptible(500);
+                if (pet.interrupted()) return;
+                Rectangle mon = pet.currentMonitorBounds();
+                int back = pet.logicalLocation().x + (fromLeft ? -2 * petW : 2 * petW);
+                back = Math.max(mon.x, Math.min(mon.x + mon.width - petW, back));
+                pet.walkAlongFloor(world, back);
+            });
+
+    /**
+     * "You're it!" — pet sprints to the nearest sibling, taps them
+     * ({@code paw} emote on the OTHER pet), then runs to the far side of
+     * the current monitor as if to escape being tagged back. The tagged pet
+     * is left alone (no FLEE reaction) so the visual gag stays a one-shot
+     * rather than a chase.
+     */
+    public static final Activity TAG = new Activity("tag",
+            (pet, world) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.35 : 0,
+            (pet, world) -> {
+                Pet target = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (target == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = target.logicalLocation().x + target.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < otherMid;
+                int approachX = fromLeft
+                        ? otherMid - target.effectiveWidth() / 2 - petW
+                        : otherMid + target.effectiveWidth() / 2;
+                pet.runAlongFloor(world, approachX);
+                if (pet.interrupted()) return;
+                target.showEmote("paw", 700);   // the tap lands on the OTHER pet
+                pet.showEmote("sparkle", 350);
+                Pet.sleepInterruptible(300);
+                if (pet.interrupted()) return;
+                Rectangle mon = pet.currentMonitorBounds();
+                int escapeX = fromLeft
+                        ? mon.x + 8
+                        : mon.x + mon.width - petW - 8;
+                pet.runAlongFloor(world, escapeX);
+            });
+
+    /** Solo: spin in place chasing one's own tail, with a sparkle emote. */
+    public static final Activity CHASE_TAIL = new Activity("chase-tail",
+            (pet, world) -> 0.4,
+            (pet, world) -> pet.chaseTail());
+
+    /** Solo: four small vertical bobs with drop emotes \u2014 hiccups. */
+    public static final Activity HICCUP = new Activity("hiccup",
+            (pet, world) -> 0.25,
+            (pet, world) -> pet.hiccup());
+
+    /** Solo: sit and look at the sky with slow sparkle emotes. */
+    public static final Activity STARGAZE = new Activity("stargaze",
+            (pet, world) -> 0.3,
+            (pet, world) -> pet.stargaze());
+
+    /** Solo: sit and emit three mini-hearts \u2014 spontaneous affection burst. */
+    public static final Activity BURST_OF_HEARTS = new Activity("burst-of-hearts",
+            (pet, world) -> {
+                // Slightly ramps when AFFECTION is HIGH \u2014 a content pet expresses it.
+                double a = pet.needs.get(Need.AFFECTION);
+                return a > 60 ? 0.45 : 0.2;
+            },
+            (pet, world) -> pet.burstOfHearts());
+
+    /** Solo: cycle the "look" sprite with a yellow "?" emote \u2014 curious moment. */
+    public static final Activity HEAD_TILT = new Activity("head-tilt",
+            (pet, world) -> 0.4,
+            (pet, world) -> pet.headTilt());
+
+    /**
+     * Solo: sleepy yawn with a "zzz" emote. Priority ramps as ENERGY drops
+     * so a tired pet visibly telegraphs the approaching SLEEP activity.
+     */
+    public static final Activity YAWN = new Activity("yawn",
+            (pet, world) -> {
+                double e = pet.needs.get(Need.ENERGY);
+                // Below 45 ENERGY, YAWN becomes a likelier-than-baseline filler.
+                return e < 45 ? 0.6 : 0.25;
+            },
+            (pet, world) -> pet.yawn());
+
+    /** Solo: sit and emit three crescent-moon emotes \u2014 quiet nighttime mood. */
+    public static final Activity MOON_GAZE = new Activity("moon-gaze",
+            (pet, world) -> 0.25,
+            (pet, world) -> pet.moonGaze());
+
+    /**
+     * Solo: anxious pace back and forth three times around the starting
+     * column. No new sprite \u2014 reuses the walk gait. Distinct from
+     * {@link #WANDER} (which travels) and {@link #CHASE_TAIL} (which spins).
+     */
+    public static final Activity PACE = new Activity("pace",
+            (pet, world) -> 0.3,
+            (pet, world) -> pet.paceBackAndForth(world));
+
+    /**
+     * Affectionate grooming: walk up to the nearest sibling pet, sit beside
+     * them, and lick three times (lick emote on the licker, mini-heart on
+     * the recipient). Both pets gain a small AFFECTION boost. Distinct from
+     * {@link #SNIFF} (investigative, paw emote), {@link #NUDGE} (single
+     * bump) and {@link #GREET_PET} (one-shot heart): licking is a sustained
+     * social interaction.
+     */
+    public static final Activity LICK_PET = new Activity("lick-pet",
+            (pet, world) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.4 : 0,
+            (pet, world) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < otherMid;
+                int targetX = fromLeft
+                        ? otherMid - other.effectiveWidth() / 2 - petW
+                        : otherMid + other.effectiveWidth() / 2;
+                pet.walkAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.sit();
+                for (int i = 0; i < 3; i++) {
+                    if (pet.interrupted()) return;
+                    pet.showEmote("lick", 600);
+                    other.showEmote("mini-heart", 600);
+                    Pet.sleepInterruptible(500);
+                }
+                pet.needs.add(Need.AFFECTION, 25);
+                other.needs.add(Need.AFFECTION, 25);
+            });
+
+    /**
+     * Silly solo gag: walk to the nearest left/right monitor edge, sit, and
+     * lick the screen three times \u2014 the pet trying to clean the glass
+     * from the inside. No new sprite required beyond {@code lick}.
+     */
+    public static final Activity LICK_EDGE = new Activity("lick-edge",
+            (pet, world) -> 0.25,
+            (pet, world) -> pet.lickScreenEdge(world));
+
+    /** Time a pet may sit on top of another before {@link #MAKE_SPACE} fires. */
+    private static final long OVERLAP_GRACE_MS = 4_000L;
+
+    /**
+     * Step aside when two pets have been visually stacked on top of each
+     * other for more than {@link #OVERLAP_GRACE_MS}. Intentional social
+     * activities (NUDGE, LICK_PET, CHASE_PET, &hellip;) run to completion
+     * before the engine picks again, so brief on-purpose overlaps never
+     * trip this; only persistent post-activity stack-ups do. Priority is
+     * high enough to beat ambient wandering but kept below true urgent
+     * needs.
+     */
+    public static final Activity MAKE_SPACE = new Activity("make-space",
+            (pet, world) -> {
+                Pet other = pet.overlappingOtherPet();
+                long now = System.currentTimeMillis();
+                if (other == null) {
+                    pet.overlapStartMs = 0L;
+                    return 0.0;
+                }
+                if (pet.overlapStartMs == 0L) {
+                    pet.overlapStartMs = now;
+                    return 0.0;
+                }
+                long age = now - pet.overlapStartMs;
+                if (age < OVERLAP_GRACE_MS) return 0.0;
+                // Climbs from 1.4 -> 1.9 as the overlap lingers, so a
+                // longer stack-up beats more ambient activities.
+                return Math.min(1.9, 1.4 + age / 20_000.0);
+            },
+            (pet, world) -> {
+                Pet other = pet.overlappingOtherPet();
+                if (other == null) { pet.overlapStartMs = 0L; return; }
+                Rectangle mon = pet.currentMonitorBounds();
+                int petW = pet.effectiveWidth();
+                int myMid = pet.logicalLocation().x + petW / 2;
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                // Step away horizontally by roughly 1.4 pet-widths, in the
+                // direction opposite the other pet. If the other pet is
+                // directly on top of us pick a random side.
+                int step = (int) (petW * 1.4);
+                int dir;
+                if (myMid == otherMid) {
+                    dir = java.util.concurrent.ThreadLocalRandom.current().nextBoolean() ? 1 : -1;
+                } else {
+                    dir = myMid >= otherMid ? 1 : -1;
+                }
+                int targetMid = myMid + dir * step;
+                int targetX = targetMid - petW / 2;
+                // Stay inside the monitor. Guard against degenerate
+                // monitors that are narrower than the pet (or barely
+                // wider than petW+4): without the max() below, loX>hiX
+                // and the subsequent flip logic could place the pet
+                // outside the monitor.
+                int loX = mon.x + 2;
+                int hiX = Math.max(loX, mon.x + mon.width - petW - 2);
+                if (targetX < loX) {
+                    targetX = loX;
+                    // If clamped against the wall we're heading toward,
+                    // flip and go the other way instead. Clamp to BOTH
+                    // bounds in case the pet's current position is
+                    // already outside the monitor (which would otherwise
+                    // produce a flip target still outside [loX, hiX]).
+                    if (dir < 0) targetX = Math.max(loX,
+                            Math.min(hiX, myMid + step - petW / 2));
+                } else if (targetX > hiX) {
+                    targetX = hiX;
+                    if (dir > 0) targetX = Math.max(loX,
+                            Math.min(hiX, myMid - step - petW / 2));
+                }
+                pet.walkAlongFloor(world, targetX);
+                pet.overlapStartMs = 0L;
+            });
+
+    /**
+     * Brief vocalisation: pet says a per-species phrase ("Woof!", "Meow",
+     * "Quack!", "Tweet!") in a speech bubble. The bubble tail points at
+     * the addressee \u2014 the nearest sibling pet if one is within
+     * {@link #PET_PET_RADIUS}, otherwise the cursor if it's on the same
+     * monitor, otherwise centered (talking to itself). Slightly higher
+     * baseline priority when another pet is nearby so the rooms feels
+     * chatty when multiple pets coexist.
+     */
+    public static final Activity SPEAK = new Activity("speak",
+            (pet, world) -> {
+                if (pet.nearestOtherPet(PET_PET_RADIUS) != null) return 0.55;
+                java.awt.Point c = World.cursorPos();
+                if (c != null && pet.currentMonitorBounds().contains(c)) return 0.35;
+                return 0.2;
+            },
+            (pet, world) -> {
+                int targetMidX = Integer.MIN_VALUE;
+                Pet sibling = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (sibling != null) {
+                    targetMidX = sibling.logicalLocation().x + sibling.effectiveWidth() / 2;
+                } else {
+                    java.awt.Point c = World.cursorPos();
+                    if (c != null && pet.currentMonitorBounds().contains(c)) {
+                        targetMidX = c.x;
+                    }
+                }
+                pet.speak(pet.randomSound(), 1400L, targetMidX);
+            });
+
     /** All activities in priority tie-break order (urgent → cosmetic). */
     public static final List<Activity> ALL = List.of(
-            SLEEP, EAT, SEEK_PETTING, PLAY_BALL,
+            SLEEP, EAT, DRINK, SEEK_PETTING, PLAY_BALL,
             STARTLE_FLUSH, GREET_FOREGROUND,
-            STALK_POINTER, FETCH_CURSOR, FOLLOW_CURSOR,
-            GREET_PET, CHASE_PET,
+            STALK_POINTER, HUNT_CURSOR, FETCH_CURSOR, FOLLOW_CURSOR,
+            GREET_PET, CHASE_PET, HUNT_PET, HUNT_BIRD, SNIFF, NUDGE, TAG, LICK_PET,
             DISAPPEAR_REAPPEAR, ZOOMIES, WANDER,
             HIGH_PERCH_LEAP, GROOMING, KNOCK_SOMETHING_OFF,
             FLIT, CIRCLE, PERCH_SING,
             WADDLE_LOOP, CRAWL_SNEAK, CROUCH_POUT, QUACK_COMBO,
-            DIG,
+            DIG, SCRATCH, DANCE,
+            CHASE_TAIL, HICCUP, STARGAZE, BURST_OF_HEARTS,
+            HEAD_TILT, YAWN, MOON_GAZE, PACE, LICK_EDGE, SPEAK,
+            MAKE_SPACE,
             IDLE);
 }

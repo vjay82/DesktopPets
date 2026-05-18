@@ -10,6 +10,15 @@ public final class Dog extends Pet {
     @Override protected String doodleKind() { return "dog"; }
     @Override protected int walkStepDelayMs() { return 7; }
 
+    @Override public String[] sounds() {
+        return new String[] { "Woof!", "Bark!", "Arf!", "Bork!", "Ruff!" };
+    }
+
+    // Dog ships a 4-frame gallop sheet (tongue out, dust streak) under Sprites/Dog/Run/{Left,Right}.
+    @Override protected java.util.List<String> runLeftFrames()  { return frames("dog/run-left",  0, 3); }
+    @Override protected java.util.List<String> runRightFrames() { return frames("dog/run-right", 0, 3); }
+    @Override protected int runStepDelayMs() { return 3; }
+
     @Override
     public void onClicked() {
         // Half the time stretch (happy dog), half the time sit (good boy).

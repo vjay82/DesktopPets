@@ -27,12 +27,14 @@
 <rect x="33" y="25" width="1" height="2" fill="#4a2c18"/>
 <rect x="34" y="24" width="1" height="2" fill="#d4a373"/>
 <rect x="35" y="23" width="1" height="1" fill="url(#belly)"/>
-<rect x="27" y="34" width="2" height="3" fill="#d4a373"/>
-<rect x="27" y="37" width="2" height="1" fill="url(#belly)"/>
+<rect x="27" y="32" width="2" height="3" fill="#d4a373"/>
+<rect x="27" y="33" width="1" height="1" fill="#a47a52"/><!--knee-->
+<rect x="27" y="35" width="2" height="1" fill="url(#belly)"/>
 <rect x="24" y="35" width="2" height="2" fill="#a47a52"/>
 <rect x="24" y="37" width="2" height="1" fill="url(#belly)"/>
-<rect x="21" y="35" width="2" height="2" fill="#a47a52"/>
-<rect x="21" y="37" width="2" height="1" fill="url(#belly)"/>
+<rect x="21" y="33" width="2" height="2" fill="#a47a52"/>
+<rect x="21" y="35" width="2" height="1" fill="url(#belly)"/>
 <rect x="18" y="34" width="2" height="3" fill="#d4a373"/>
+<rect x="19" y="35" width="1" height="1" fill="#a47a52"/><!--knee-->
 <rect x="18" y="37" width="2" height="1" fill="url(#belly)"/>
 </svg>

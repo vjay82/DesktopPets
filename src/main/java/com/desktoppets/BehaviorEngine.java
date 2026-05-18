@@ -68,6 +68,19 @@ public final class BehaviorEngine {
             // before any normal activity runs.
             pet.runPendingEntryWalk(world);
 
+            // Reactions from other pets (DUCK while being jumped over, FLEE
+            // when hunted) preempt normal activity selection so the visual
+            // sequence stays coherent across the two engine threads.
+            if (pet.hasActiveReaction()) {
+                switch (pet.reaction) {
+                    case DUCK -> pet.holdDuck();
+                    case FLEE -> pet.fleeFrom(world);
+                    case STEAL_BALL -> pet.stealBallFrom(world);
+                    default   -> { /* unreachable: hasActiveReaction == NONE-guard */ }
+                }
+                continue;
+            }
+
             Activity chosen = pick(world);
 
             if (pet.clicked) {
@@ -209,6 +222,103 @@ public final class BehaviorEngine {
         if (a == Activities.CHASE_PET) {
             // 90..240 s — sprinting at each other is rarer.
             return 90_000L + ThreadLocalRandom.current().nextLong(0, 150_000L);
+        }
+        if (a == Activities.HUNT_PET) {
+            // 90..240 s — same rhythm as CHASE_PET so two simultaneous pursuit
+            // activities don't collectively spam the room.
+            return 90_000L + ThreadLocalRandom.current().nextLong(0, 150_000L);
+        }
+        if (a == Activities.HUNT_BIRD) {
+            // 20..60 s — visitor birds are rare and self-dispose; we mostly
+            // just need to suppress a re-pick in the seconds immediately
+            // after the bird flies off (no visitor → priority is 0 anyway,
+            // so this cooldown only matters if a SECOND bird arrives back-
+            // to-back).
+            return 20_000L + ThreadLocalRandom.current().nextLong(0, 40_000L);
+        }
+        if (a == Activities.HUNT_CURSOR) {
+            // 60..180 s — chasing the mouse is a one-off comic moment; with
+            // a shorter cooldown it would dominate any session where the user
+            // is actively scrolling/clicking.
+            return 60_000L + ThreadLocalRandom.current().nextLong(0, 120_000L);
+        }
+        if (a == Activities.SNIFF) {
+            // 45..120 s — investigative interaction, mid-frequency.
+            return 45_000L + ThreadLocalRandom.current().nextLong(0, 75_000L);
+        }
+        if (a == Activities.NUDGE) {
+            // 60..180 s — playful bump, infrequent so it lands as a gag.
+            return 60_000L + ThreadLocalRandom.current().nextLong(0, 120_000L);
+        }
+        if (a == Activities.TAG) {
+            // 60..180 s — same rhythm as NUDGE so the room doesn't tag-spam.
+            return 60_000L + ThreadLocalRandom.current().nextLong(0, 120_000L);
+        }
+        if (a == Activities.CHASE_TAIL) {
+            // 50..130 s — frequent enough that you reliably see at least one
+            // per session even with several pets competing for activities.
+            return 50_000L + ThreadLocalRandom.current().nextLong(0, 80_000L);
+        }
+        if (a == Activities.HICCUP) {
+            // 90..240 s — rare comic moment.
+            return 90_000L + ThreadLocalRandom.current().nextLong(0, 150_000L);
+        }
+        if (a == Activities.STARGAZE) {
+            // 120..300 s — calm pause, rare so it doesn't compete with other sits.
+            return 120_000L + ThreadLocalRandom.current().nextLong(0, 180_000L);
+        }
+        if (a == Activities.BURST_OF_HEARTS) {
+            // 90..240 s — pleasant affection moment, paced like HICCUP.
+            return 90_000L + ThreadLocalRandom.current().nextLong(0, 150_000L);
+        }
+        if (a == Activities.HEAD_TILT) {
+            // 60..150 s — curious moment, frequent enough to be recognisable.
+            return 60_000L + ThreadLocalRandom.current().nextLong(0, 90_000L);
+        }
+        if (a == Activities.YAWN) {
+            // 70..180 s — sleepy filler, paced so a chain of yawns is rare.
+            return 70_000L + ThreadLocalRandom.current().nextLong(0, 110_000L);
+        }
+        if (a == Activities.MOON_GAZE) {
+            // 150..360 s — rare nighttime mood piece.
+            return 150_000L + ThreadLocalRandom.current().nextLong(0, 210_000L);
+        }
+        if (a == Activities.PACE) {
+            // 90..210 s — anxious pacing, infrequent so it reads as a mood
+            // shift rather than the pet's normal locomotion.
+            return 90_000L + ThreadLocalRandom.current().nextLong(0, 120_000L);
+        }
+        if (a == Activities.LICK_PET) {
+            // 90..210 s — sustained social grooming, similar pacing to NUDGE.
+            return 90_000L + ThreadLocalRandom.current().nextLong(0, 120_000L);
+        }
+        if (a == Activities.LICK_EDGE) {
+            // 150..330 s — silly one-off gag, kept rare so it stays funny.
+            return 150_000L + ThreadLocalRandom.current().nextLong(0, 180_000L);
+        }
+        if (a == Activities.SPEAK) {
+            // 45..120 s — pets should chime in often enough to feel alive
+            // (especially with siblings around) but not so often that the
+            // bubbles feel like spam.
+            return 45_000L + ThreadLocalRandom.current().nextLong(0, 75_000L);
+        }
+        if (a == Activities.SCRATCH) {
+            // 60..150 s — frequent enough that every pet visibly scratches a
+            // couple of times per session, paced like CHASE_TAIL/HEAD_TILT so
+            // it doesn't dominate the cosmetic-filler rotation.
+            return 60_000L + ThreadLocalRandom.current().nextLong(0, 90_000L);
+        }
+        if (a == Activities.DANCE) {
+            // 120..300 s — dance is a showpiece moment, kept rare so it
+            // doesn't lose its impact. Paced like STARGAZE.
+            return 120_000L + ThreadLocalRandom.current().nextLong(0, 180_000L);
+        }
+        if (a == Activities.MAKE_SPACE) {
+            // Small cooldown so a pet that just shuffled aside doesn't
+            // immediately re-trigger if its sibling chases the new spot.
+            // The grace timer in the priority lambda already resists
+            // re-arming for the first few seconds anyway.
+            return 1_500L;
         }
         // Other need-driven activities (sleep/eat) have no cooldown — they're
         // naturally gated by their underlying need (priority 0 when satisfied).

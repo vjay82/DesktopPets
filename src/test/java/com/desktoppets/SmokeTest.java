@@ -27,7 +27,8 @@ final class SmokeTest {
         String[] kinds = {"ducky", "cat", "dog", "bird"};
         String[] states = {"idle/0", "idle/1", "idle/2",
                            "walk-left/0", "walk-right/0",
-                           "sit", "sleep", "stretch", "look/0", "look/1"};
+                           "sit", "sleep", "stretch", "look/0", "look/1", "scratch",
+                           "dance/0", "dance/1"};
         for (String k : kinds) {
             for (String s : states) {
                 ImageIcon icon = Doodle.icon(k + "/" + s, 64);

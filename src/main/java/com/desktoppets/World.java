@@ -63,14 +63,117 @@ public record World(int screenW, int screenH, Rectangle foreground, Rectangle ta
      * fetch-cursor, follow-cursor) consult this each tick — we deliberately
      * do NOT cache it because the user moves the mouse much faster than the
      * 150 ms World cache TTL.
+     *
+     * <p>Side effect: each call samples the cursor into a small ring buffer
+     * (rate-limited to {@value #CURSOR_SAMPLE_MIN_MS} ms between samples)
+     * so {@link #cursorMotionPx(long)} can later report how much the cursor
+     * has been moving recently. Sampling here (rather than from a dedicated
+     * timer) keeps the mechanism free: the same activities that already
+     * poll the cursor every tick feed the history.
      */
     public static Point cursorPos() {
         try {
             PointerInfo pi = MouseInfo.getPointerInfo();
-            return pi == null ? null : pi.getLocation();
+            Point p = pi == null ? null : pi.getLocation();
+            sampleCursor(p);
+            return p;
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    // ---------------- cursor motion history ----------------
+    // A tiny ring buffer of recent cursor (timestamp, x, y) samples used
+    // by HUNT_CURSOR to detect "the user is fiddling with the mouse in
+    // front of the pet". Sampled by a dedicated background thread (see
+    // {@link #startCursorSampler}) so the history stays current even when
+    // no activity is polling the cursor — the engine spends most of its
+    // time in long-running activities (idle: ~5 s, sleep: longer) and a
+    // forced 2..7 s rest window after every non-IDLE pick during which
+    // {@code pick()} is short-circuited and no priority lambdas (and thus
+    // no cursorPos() calls) fire. Before the sampler existed,
+    // {@link #cursorMotionPx(long)} therefore almost always saw
+    // {@code cursorCount < 2} inside its 3 s window and returned 0, so
+    // HUNT_CURSOR's priority stayed at 0 and the pet never hunted.
+
+    private static final int  CURSOR_HIST_SIZE     = 64;
+    private static final long CURSOR_SAMPLE_MIN_MS = 80L;
+    private static final Object CURSOR_LOCK = new Object();
+    private static final long[] cursorTs = new long[CURSOR_HIST_SIZE];
+    private static final int[]  cursorXs = new int[CURSOR_HIST_SIZE];
+    private static final int[]  cursorYs = new int[CURSOR_HIST_SIZE];
+    private static int  cursorHead       = 0;
+    private static int  cursorCount      = 0;
+    private static long cursorLastSample = 0L;
+
+    private static void sampleCursor(Point p) {
+        if (p == null) return;
+        long now = System.currentTimeMillis();
+        synchronized (CURSOR_LOCK) {
+            if (now - cursorLastSample < CURSOR_SAMPLE_MIN_MS) return;
+            cursorLastSample = now;
+            cursorTs[cursorHead] = now;
+            cursorXs[cursorHead] = p.x;
+            cursorYs[cursorHead] = p.y;
+            cursorHead = (cursorHead + 1) % CURSOR_HIST_SIZE;
+            if (cursorCount < CURSOR_HIST_SIZE) cursorCount++;
+        }
+    }
+
+    /**
+     * Total pixel-distance the cursor has moved across samples taken in
+     * the last {@code windowMs} ms (sum of {@code |dx|+|dy|} between
+     * consecutive samples). Returns 0 if there is no recent cursor
+     * activity (e.g. headless, or nothing has called {@link #cursorPos()}
+     * since the JVM started). Used by HUNT_CURSOR to gate on "the cursor
+     * has actually been moving" rather than "the cursor exists".
+     */
+    public static int cursorMotionPx(long windowMs) {
+        synchronized (CURSOR_LOCK) {
+            if (cursorCount < 2) return 0;
+            long cutoff = System.currentTimeMillis() - windowMs;
+            int newest = (cursorHead - 1 + CURSOR_HIST_SIZE) % CURSOR_HIST_SIZE;
+            int total = 0;
+            int prev = newest;
+            int seen = 1;
+            while (seen < cursorCount) {
+                int cur = (prev - 1 + CURSOR_HIST_SIZE) % CURSOR_HIST_SIZE;
+                if (cursorTs[cur] < cutoff) break;
+                total += Math.abs(cursorXs[prev] - cursorXs[cur])
+                       + Math.abs(cursorYs[prev] - cursorYs[cur]);
+                prev = cur;
+                seen++;
+            }
+            return total;
+        }
+    }
+
+    /**
+     * Background sampler: polls the cursor every
+     * {@value #CURSOR_SAMPLE_MIN_MS} ms into the ring buffer so
+     * {@link #cursorMotionPx(long)} stays accurate even while no
+     * activity is actively calling {@link #cursorPos()}. Started once
+     * from {@link Main}.
+     */
+    public static void startCursorSampler() {
+        Thread t = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    PointerInfo pi = MouseInfo.getPointerInfo();
+                    if (pi != null) sampleCursor(pi.getLocation());
+                } catch (Throwable ignored) {
+                    // headless / display change races — ignore and retry
+                }
+                try {
+                    Thread.sleep(CURSOR_SAMPLE_MIN_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }, "cursor-sampler");
+        t.setDaemon(true);
+        t.start();
     }
 
     /**

@@ -8,7 +8,16 @@ public final class Cat extends Pet {
     }
 
     @Override protected String doodleKind() { return "cat"; }
+
+    @Override public String[] sounds() {
+        return new String[] { "Meow", "Mrrow!", "Purrr", "Mrrr...", "Nya~" };
+    }
     @Override protected int walkStepDelayMs() { return 6; }
+
+    // Cat ships a dedicated 8-frame gallop sheet under Sprites/Cat/Run/{Left,Right}.
+    @Override protected java.util.List<String> runLeftFrames()  { return frames("cat/run-left",  0, 7); }
+    @Override protected java.util.List<String> runRightFrames() { return frames("cat/run-right", 0, 7); }
+    @Override protected int runStepDelayMs() { return 3; }
 
     @Override
     public void onClicked() {

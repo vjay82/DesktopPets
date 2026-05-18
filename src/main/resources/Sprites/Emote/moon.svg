@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" shape-rendering="crispEdges">
+<!-- Pixel-art crescent moon (left-facing C) with two tiny stars. Used for
+     the MOON_GAZE activity. Drawn outline-first, then the cream fill leaves
+     a curved bite out of the right side to read as a crescent rather than a
+     full disc. -->
+<!-- Outer outline (the full moon silhouette) -->
+<rect x="8"  y="3"  width="5" height="1" fill="#8a7a3a"/>
+<rect x="6"  y="4"  width="2" height="2" fill="#8a7a3a"/>
+<rect x="13" y="4"  width="2" height="2" fill="#8a7a3a"/>
+<rect x="5"  y="6"  width="1" height="3" fill="#8a7a3a"/>
+<rect x="15" y="6"  width="1" height="3" fill="#8a7a3a"/>
+<rect x="4"  y="8"  width="1" height="5" fill="#8a7a3a"/>
+<rect x="15" y="9"  width="1" height="2" fill="#8a7a3a"/>
+<rect x="5"  y="13" width="1" height="3" fill="#8a7a3a"/>
+<rect x="6"  y="15" width="1" height="2" fill="#8a7a3a"/>
+<rect x="7"  y="17" width="2" height="2" fill="#8a7a3a"/>
+<rect x="9"  y="18" width="3" height="1" fill="#8a7a3a"/>
+<!-- Inner curve outline (the crescent bite on the right) -->
+<rect x="14" y="6"  width="1" height="2" fill="#8a7a3a"/>
+<rect x="13" y="7"  width="1" height="2" fill="#8a7a3a"/>
+<rect x="12" y="8"  width="1" height="2" fill="#8a7a3a"/>
+<rect x="11" y="9"  width="1" height="4" fill="#8a7a3a"/>
+<rect x="12" y="12" width="1" height="2" fill="#8a7a3a"/>
+<rect x="13" y="13" width="1" height="2" fill="#8a7a3a"/>
+<rect x="14" y="15" width="1" height="1" fill="#8a7a3a"/>
+<rect x="11" y="16" width="1" height="2" fill="#8a7a3a"/>
+<!-- Cream crescent fill (bounded by outer outline on the left and the
+     curved inner bite on the right). -->
+<rect x="8"  y="4"  width="5" height="1" fill="#f8eea3"/>
+<rect x="7"  y="5"  width="6" height="1" fill="#f8eea3"/>
+<rect x="6"  y="6"  width="8" height="1" fill="#f8eea3"/>
+<rect x="6"  y="7"  width="7" height="1" fill="#f8eea3"/>
+<rect x="6"  y="8"  width="6" height="2" fill="#f8eea3"/>
+<rect x="5"  y="9"  width="6" height="1" fill="#f8eea3"/>
+<rect x="5"  y="10" width="6" height="2" fill="#f8eea3"/>
+<rect x="5"  y="12" width="7" height="1" fill="#f8eea3"/>
+<rect x="6"  y="13" width="7" height="1" fill="#f8eea3"/>
+<rect x="6"  y="14" width="8" height="1" fill="#f8eea3"/>
+<rect x="7"  y="15" width="7" height="1" fill="#f8eea3"/>
+<rect x="7"  y="16" width="4" height="1" fill="#f8eea3"/>
+<rect x="9"  y="17" width="2" height="1" fill="#f8eea3"/>
+<!-- Inner-edge shading on the right where the crescent thins. -->
+<rect x="9"  y="7"  width="2" height="1" fill="#d6c87a"/>
+<rect x="9"  y="10" width="2" height="2" fill="#d6c87a"/>
+<rect x="10" y="14" width="2" height="1" fill="#d6c87a"/>
+<!-- Two atmospheric stars in the empty right corner. -->
+<rect x="18" y="5"  width="1" height="1" fill="#fff8c2"/>
+<rect x="20" y="9"  width="1" height="1" fill="#fff8c2"/>
+<rect x="19" y="15" width="1" height="1" fill="#fff8c2"/>
+</svg>

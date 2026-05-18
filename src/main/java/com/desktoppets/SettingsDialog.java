@@ -26,12 +26,22 @@ import javax.swing.UnsupportedLookAndFeelException;
  */
 public final class SettingsDialog extends JDialog {
 
-    private static final String[] AVAILABLE = {"ducky", "cat", "dog", "bird"};
+    // Bird is intentionally NOT in this list: it's now a "visitor" species
+    // spawned ad-hoc by {@link BirdVisitor} near a resident pet and
+    // self-disposes after a short stay, so the user can't toggle it as a
+    // regular pet.
+    private static final String[] AVAILABLE = {"ducky", "cat", "dog"};
 
     public SettingsDialog(JFrame owner, PetSupervisor supervisor) {
         super(owner, "Desktop Pets — Settings", true);
         applyNimbus();
         setLayout(new BorderLayout(8, 8));
+
+        // Remember pre-dialog values so Cancel can revert any live-preview
+        // changes made via the sliders. Without this, dragging a slider
+        // applies immediately and Cancel leaves the change in place.
+        final int origSize = supervisor.getPetSize();
+        final double origActivity = supervisor.getActivityLevel();
 
         Map<String, JCheckBox> boxes = new LinkedHashMap<>();
         List<String> current = Config.readPets();
@@ -104,7 +114,22 @@ public final class SettingsDialog extends JDialog {
             supervisor.reconcile(selected);
             dispose();
         });
-        cancel.addActionListener(e -> dispose());
+        Runnable revert = () -> {
+            // Revert live-preview slider changes; checkbox state is not
+            // applied until OK so it needs no revert.
+            supervisor.setPetSize(origSize);
+            supervisor.setActivityLevel(origActivity);
+        };
+        cancel.addActionListener(e -> { revert.run(); dispose(); });
+
+        // Closing via the window's X button bypasses the Cancel handler.
+        // Hook windowClosing so the revert still runs in that case.
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosing(java.awt.event.WindowEvent e) {
+                revert.run();
+            }
+        });
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttons.add(cancel);

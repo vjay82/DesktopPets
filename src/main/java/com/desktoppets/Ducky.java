@@ -8,6 +8,10 @@ public final class Ducky extends Pet {
     }
 
     @Override protected String doodleKind() { return "ducky"; }
+
+    @Override public String[] sounds() {
+        return new String[] { "Quack!", "Quack quack", "Honk!", "Squeak!" };
+    }
     @Override protected int walkStepDelayMs() { return 12; }
     @Override protected int spawnBottomOffset() { return (int) (petSize * 0.75); }
 

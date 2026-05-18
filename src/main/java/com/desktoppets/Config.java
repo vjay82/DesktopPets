@@ -140,7 +140,10 @@ public final class Config {
                               line.substring(eq + 1).trim());
             }
         } catch (IOException e) {
-            // ignore - treat as empty
+            // Treat as empty config, but surface the problem so a corrupted
+            // or permission-denied config.txt doesn't silently revert the
+            // user's settings.
+            Log.warn("config", "failed to read " + PATH + ": " + e);
         }
         return p;
     }

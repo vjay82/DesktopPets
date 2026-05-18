@@ -1,44 +1,88 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" shape-rendering="crispEdges">
-<defs><linearGradient id="belly" x1="0" y1="32" x2="0" y2="36" gradientUnits="userSpaceOnUse" spreadMethod="pad"><stop offset="0" stop-color="#f7eede"/><stop offset="1" stop-color="#c89a6a"/></linearGradient></defs>
-<!-- saddle stripe across back -->
-<rect x="18" y="25" width="11" height="2" fill="#4a2c18"/>
-<rect x="17" y="25" width="1" height="2" fill="#d4a373"/>
-<rect x="29" y="25" width="2" height="2" fill="#d4a373"/>
-<!-- upper body -->
-<rect x="17" y="27" width="14" height="2" fill="#d4a373"/>
+<defs><linearGradient id="belly" x1="0" y1="24" x2="0" y2="37" gradientUnits="userSpaceOnUse" spreadMethod="pad"><stop offset="0" stop-color="#f7eede"/><stop offset="1" stop-color="#c89a6a"/></linearGradient></defs>
+
+<!-- Floppy beagle ears hanging beside the head (drawn first so head overlaps the inner edge). -->
+<rect x="14" y="14" width="4" height="8" fill="#4a2c18"/>
+<rect x="30" y="14" width="4" height="8" fill="#4a2c18"/>
+<rect x="14" y="21" width="4" height="1" fill="#a47a52"/>
+<rect x="30" y="21" width="4" height="1" fill="#a47a52"/>
+
+<!-- Tail tip curled up behind the right haunch. -->
+<rect x="33" y="29" width="2" height="2" fill="#4a2c18"/>
+<rect x="34" y="28" width="1" height="2" fill="#d4a373"/>
+
+<!-- Head: saddle cap on top, tan face below. -->
+<rect x="18" y="12" width="12" height="3" fill="#4a2c18"/>
+<rect x="18" y="15" width="12" height="5" fill="#d4a373"/>
+
+<!-- Tricolour beagle face mask: dark eyebrow patches with a cream blaze between them. -->
+<rect x="18" y="15" width="4" height="3" fill="#4a2c18"/>
+<rect x="26" y="15" width="4" height="3" fill="#4a2c18"/>
+<rect x="23" y="15" width="2" height="3" fill="url(#belly)"/>
+
+<!-- Eyes: two clear forward-facing pupils with a tiny highlight. -->
+<rect x="19" y="16" width="2" height="2" fill="#1a1410"/>
+<rect x="27" y="16" width="2" height="2" fill="#1a1410"/>
+<rect x="19" y="16" width="1" height="1" fill="#f7eede"/>
+<rect x="27" y="16" width="1" height="1" fill="#f7eede"/>
+
+<!-- Cheeks tapering down to a small chin. -->
+<rect x="19" y="20" width="10" height="1" fill="#d4a373"/>
+<rect x="20" y="21" width="8" height="1" fill="#d4a373"/>
+<rect x="21" y="22" width="6" height="1" fill="#d4a373"/>
+
+<!-- Snout protruding toward the viewer (cream) with black nose on top. -->
+<rect x="21" y="19" width="6" height="3" fill="url(#belly)"/>
+<rect x="23" y="19" width="2" height="2" fill="#1a1410"/>
+
+<!-- Mouth corners (classic dog smile). -->
+<rect x="22" y="22" width="1" height="1" fill="#4a2c18"/>
+<rect x="25" y="22" width="1" height="1" fill="#4a2c18"/>
+
+<!-- Body: tan sides with cream belly running down the centre. -->
+<rect x="17" y="24" width="14" height="2" fill="#d4a373"/>
+<rect x="20" y="24" width="8" height="2" fill="url(#belly)"/>
+<rect x="16" y="26" width="16" height="3" fill="#d4a373"/>
+<rect x="20" y="26" width="8" height="3" fill="url(#belly)"/>
 <rect x="17" y="29" width="14" height="3" fill="#d4a373"/>
-<rect x="17" y="32" width="1" height="1" fill="#a47a52"/>
-<rect x="30" y="32" width="1" height="1" fill="#a47a52"/>
-<rect x="18" y="32" width="12" height="1" fill="url(#belly)"/>
-<rect x="18" y="33" width="1" height="1" fill="#a47a52"/>
-<rect x="29" y="33" width="1" height="1" fill="#a47a52"/>
-<rect x="19" y="33" width="10" height="1" fill="url(#belly)"/>
-<!-- folded haunch on the left (rear of the dog, sitting on the floor) -->
-<rect x="15" y="30" width="3" height="2" fill="#a47a52"/>
-<rect x="15" y="32" width="4" height="3" fill="#a47a52"/>
-<rect x="16" y="35" width="5" height="2" fill="#d4a373"/>
-<rect x="17" y="37" width="4" height="1" fill="url(#belly)"/>
-<!-- head and muzzle (right) -->
-<rect x="29" y="23" width="2" height="2" fill="#4a2c18"/>
-<rect x="28" y="25" width="2" height="5" fill="#4a2c18"/>
-<rect x="27" y="29" width="2" height="2" fill="#4a2c18"/>
-<rect x="30" y="23" width="4" height="1" fill="#4a2c18"/>
-<rect x="30" y="24" width="5" height="2" fill="#d4a373"/>
-<rect x="30" y="26" width="2" height="2" fill="#d4a373"/>
-<rect x="32" y="26" width="4" height="2" fill="url(#belly)"/>
-<rect x="32" y="28" width="5" height="2" fill="url(#belly)"/>
-<rect x="33" y="30" width="3" height="1" fill="url(#belly)"/>
-<rect x="32" y="25" width="2" height="1" fill="#1a1410"/>
-<rect x="35" y="27" width="1" height="1" fill="#1a1410"/>
-<!-- tail (curled up, off the rear haunch) -->
-<rect x="14" y="28" width="2" height="2" fill="#4a2c18"/>
-<rect x="13" y="27" width="1" height="2" fill="#4a2c18"/>
-<rect x="12" y="26" width="1" height="2" fill="#d4a373"/>
-<rect x="12" y="25" width="1" height="1" fill="url(#belly)"/>
-<!-- front legs (right side, under chest), straight to floor -->
-<rect x="25" y="34" width="2" height="3" fill="#d4a373"/>
-<rect x="25" y="37" width="2" height="1" fill="url(#belly)"/>
-<rect x="28" y="34" width="2" height="3" fill="#d4a373"/>
-<rect x="28" y="37" width="2" height="1" fill="url(#belly)"/>
+<rect x="20" y="29" width="8" height="3" fill="url(#belly)"/>
+
+<!-- Haunches: rear thighs splayed beside the body in a beagle "frog sit". -->
+<rect x="14" y="30" width="3" height="6" fill="#d4a373"/>
+<rect x="31" y="30" width="3" height="6" fill="#d4a373"/>
+<rect x="14" y="32" width="3" height="1" fill="#a47a52"/>
+<rect x="31" y="32" width="3" height="1" fill="#a47a52"/>
+<rect x="14" y="35" width="3" height="1" fill="#a47a52"/>
+<rect x="31" y="35" width="3" height="1" fill="#a47a52"/>
+
+<!-- Front legs: straight columns coming down from the chest. -->
+<rect x="19" y="29" width="3" height="8" fill="#d4a373"/>
+<rect x="26" y="29" width="3" height="8" fill="#d4a373"/>
+<rect x="21" y="30" width="1" height="6" fill="#a47a52"/>
+<rect x="26" y="30" width="1" height="6" fill="#a47a52"/>
+
+<!-- Rear paws fanning out beside the front paws. -->
+<rect x="13" y="36" width="5" height="2" fill="#d4a373"/>
+<rect x="30" y="36" width="5" height="2" fill="#d4a373"/>
+<rect x="13" y="37" width="5" height="1" fill="#a47a52"/>
+<rect x="30" y="37" width="5" height="1" fill="#a47a52"/>
+<rect x="14" y="37" width="1" height="1" fill="#1a1410"/>
+<rect x="16" y="37" width="1" height="1" fill="#1a1410"/>
+<rect x="31" y="37" width="1" height="1" fill="#1a1410"/>
+<rect x="33" y="37" width="1" height="1" fill="#1a1410"/>
+
+<!-- Front paws: wider tips with toe gaps facing the viewer. -->
+<rect x="18" y="36" width="5" height="2" fill="#d4a373"/>
+<rect x="25" y="36" width="5" height="2" fill="#d4a373"/>
+<rect x="18" y="37" width="5" height="1" fill="#a47a52"/>
+<rect x="25" y="37" width="5" height="1" fill="#a47a52"/>
+<rect x="19" y="37" width="1" height="1" fill="#1a1410"/>
+<rect x="21" y="37" width="1" height="1" fill="#1a1410"/>
+<rect x="26" y="37" width="1" height="1" fill="#1a1410"/>
+<rect x="28" y="37" width="1" height="1" fill="#1a1410"/>
+
+<!-- Collar (red strap with brass tag) sitting at the base of the neck, drawn last so it sits on top of the chest. -->
+<rect x="19" y="23" width="10" height="1" fill="#b53a2b"/>
+<rect x="23" y="24" width="2" height="2" fill="#e0c95a"/>
 </svg>

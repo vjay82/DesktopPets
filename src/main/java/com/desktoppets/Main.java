@@ -14,8 +14,16 @@ public final class Main {
 
     public static void main(String[] args) {
         Log.info("main", "Desktop Pets starting (procedural graphics)");
+        // Begin sampling the cursor in the background so HUNT_CURSOR
+        // (and any other motion-aware activity) has an accurate recent
+        // history independent of which activity each pet is currently
+        // running.
+        World.startCursorSampler();
         PetSupervisor supervisor = new PetSupervisor();
         SwingUtilities.invokeLater(() -> new TrayApp(supervisor).install());
         supervisor.reconcile(Config.readPets());
+        // Start the wandering-bird scheduler AFTER residents reconcile so
+        // its first poll already sees the live pet list.
+        BirdVisitor.start(supervisor);
     }
 }

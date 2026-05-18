@@ -134,6 +134,12 @@ final class Doodle {
             case "drop":       return "Sprites/Emote/drop.svg";
             case "mini-heart": return "Sprites/Emote/mini-heart.svg";
             case "target":     return "Sprites/Emote/target.svg";
+            case "question":   return "Sprites/Emote/question.svg";
+            case "zzz":        return "Sprites/Emote/zzz.svg";
+            case "moon":       return "Sprites/Emote/moon.svg";
+            case "lick":       return "Sprites/Emote/lick.svg";
+            case "think-food": return "Sprites/Emote/think-food.svg";
+            case "think-water":return "Sprites/Emote/think-water.svg";
             default:           return null;
         }
     }
@@ -150,10 +156,16 @@ final class Doodle {
             case "idle":       return tile("Cat/Idle",       i % 5);
             case "walk-left":  return tile("Cat/Walk/Left",  i % 8);
             case "walk-right": return tile("Cat/Walk/Right", i % 8);
+            case "run-left":   return tile("Cat/Run/Left",   i % 8);
+            case "run-right":  return tile("Cat/Run/Right",  i % 8);
             case "sit":        return tile("Cat/Idle", 0);
             case "stretch":    return tile("Cat/Idle", 3);
             case "look":       return tile("Cat/Idle", 1 + (i % 2));
             case "sleep":      return tile("Cat/Idle", 2);
+            // Dedicated pixel-art scratch pose (lifted hind paw + motion lines).
+            case "scratch":    return "Sprites/Cat/Scratch/scratch.svg";
+            // 2-frame sway dance (body translated -/+ a couple px per frame).
+            case "dance":      return tile("Cat/Dance", i % 2);
             default:           return tile("Cat/Idle", 0);
         }
     }
@@ -168,10 +180,16 @@ final class Doodle {
             case "idle":       return tile("Dog/Idle",       i % 4);
             case "walk-left":  return tile("Dog/Walk/Left",  i % 4);
             case "walk-right": return tile("Dog/Walk/Right", i % 4);
+            case "run-left":   return tile("Dog/Run/Left",   i % 4);
+            case "run-right":  return tile("Dog/Run/Right",  i % 4);
             case "sit":        return "Sprites/Dog/Sit/sit.svg"; // dedicated haunches-down pose
             case "stretch":    return tile("Dog/Idle", 1);   // tail up = alert/stretch
             case "look":       return tile("Dog/Idle", 1 + (i % 2));
             case "sleep":      return tile("Dog/Idle", 2);
+            // Dedicated pixel-art scratch pose (raised rear paw + motion lines).
+            case "scratch":    return "Sprites/Dog/Scratch/scratch.svg";
+            // 2-frame sway dance.
+            case "dance":      return tile("Dog/Dance", i % 2);
             default:           return tile("Dog/Idle", 0);
         }
     }
@@ -184,10 +202,17 @@ final class Doodle {
             case "idle":       return tile("Ducky/Idle",       i % 4);
             case "walk-left":  return tile("Ducky/Walk/Left",  i % 4);
             case "walk-right": return tile("Ducky/Walk/Right", i % 4);
+            // No dedicated run art — reuse walk so the engine can still call run-left/right.
+            case "run-left":   return tile("Ducky/Walk/Left",  i % 4);
+            case "run-right":  return tile("Ducky/Walk/Right", i % 4);
             case "sit":        return "Sprites/Ducky/Crouch/crouch.svg";
             case "stretch":    return tile("Ducky/LeftRightCombo", 2);
             case "look":       return tile("Ducky/Idle", 1 + (i % 2));
             case "sleep":      return "Sprites/Ducky/Crouch/crouch.svg";
+            // Dedicated pixel-art scratch pose (raised orange foot + motion lines).
+            case "scratch":    return "Sprites/Ducky/Scratch/scratch.svg";
+            // 2-frame sway dance.
+            case "dance":      return tile("Ducky/Dance", i % 2);
             default:           return tile("Ducky/Idle", 0);
         }
     }
@@ -201,10 +226,18 @@ final class Doodle {
             case "idle":       return tileFrom("Bird/Idle",       1, 4, i);
             case "walk-left":  return tileFrom("Bird/Walk/Left",  1, 6, i);
             case "walk-right": return tileFrom("Bird/Walk/Right", 1, 6, i);
+            // Birds fly when running — their runAlongFloor override goes through
+            // walkAlongFloor (flight) and these keys are a defensive fallback.
+            case "run-left":   return tileFrom("Bird/Walk/Left",  1, 6, i);
+            case "run-right":  return tileFrom("Bird/Walk/Right", 1, 6, i);
             case "sit":        return tile("Bird/Idle", 1);
             case "stretch":    return tile("Bird/Walk/Right", 1);
             case "look":       return tileFrom("Bird/Idle", 1, 4, 1 + i);
             case "sleep":      return tile("Bird/Idle", 1);
+            // Dedicated pixel-art scratch pose (raised wing + motion lines).
+            case "scratch":    return "Sprites/Bird/Scratch/scratch.svg";
+            // 2-frame sway dance.
+            case "dance":      return tile("Bird/Dance", i % 2);
             default:           return tile("Bird/Idle", 1);
         }
     }
@@ -224,6 +257,7 @@ final class Doodle {
         switch (name) {
             case "ball": return "Sprites/Props/ball.svg";
             case "food": return "Sprites/Props/food.svg";
+            case "water":return "Sprites/Props/water.svg";
             case "zzz":  return "Sprites/Props/zzz.svg";
             case "tray": return "Sprites/Props/tray.svg";
             default:     return null;

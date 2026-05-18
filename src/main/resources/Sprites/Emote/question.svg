@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" shape-rendering="crispEdges">
+<!-- Yellow pixel-art "?" with darker outline. Distinct from sparkle (cross
+     burst) and note (music note) — used for HEAD_TILT / curious moments. -->
+<!-- Top arch -->
+<rect x="8"  y="3" width="8" height="2" fill="#a86810"/>
+<rect x="9"  y="4" width="6" height="1" fill="#ffd24a"/>
+<rect x="6"  y="5" width="3" height="3" fill="#a86810"/>
+<rect x="15" y="5" width="3" height="4" fill="#a86810"/>
+<rect x="7"  y="6" width="1" height="1" fill="#ffd24a"/>
+<rect x="16" y="6" width="1" height="2" fill="#ffd24a"/>
+<!-- Right shoulder turning inward toward the stem -->
+<rect x="14" y="8"  width="3" height="2" fill="#a86810"/>
+<rect x="14" y="9"  width="2" height="1" fill="#ffd24a"/>
+<rect x="12" y="9"  width="3" height="2" fill="#a86810"/>
+<rect x="12" y="10" width="2" height="1" fill="#ffd24a"/>
+<!-- Vertical stem -->
+<rect x="10" y="10" width="3" height="2" fill="#a86810"/>
+<rect x="10" y="11" width="2" height="1" fill="#ffd24a"/>
+<rect x="10" y="12" width="3" height="3" fill="#a86810"/>
+<rect x="10" y="12" width="2" height="3" fill="#ffd24a"/>
+<!-- Dot -->
+<rect x="10" y="17" width="3" height="3" fill="#a86810"/>
+<rect x="10" y="17" width="2" height="2" fill="#ffd24a"/>
+</svg>
