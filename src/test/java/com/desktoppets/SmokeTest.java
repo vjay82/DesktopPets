@@ -61,7 +61,7 @@ final class SmokeTest {
     void needsDecayWithinBounds() {
         NeedSet n = new NeedSet();
         Personality p = Personality.cat();
-        n.decay(p, 5.0);
+        n.decay(p, 5.0, 1.0);
         for (Need need : Need.values()) {
             double v = n.get(need);
             assertTrue(v >= 0 && v <= 100, need + " out of range: " + v);

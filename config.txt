@@ -3,4 +3,4 @@
 
 pets=ducky,cat,dog,bird
 pet.size=64
-pet.activity=1.00
+pet.activity=2.00

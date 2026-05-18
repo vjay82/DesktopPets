@@ -46,7 +46,7 @@ public final class Personality {
         return this;
     }
 
-    /** Cat: aloof — low affection need, loves to wander. */
+    /** Cat: aloof — low affection need, loves to wander/perch, stalks pointers. */
     public static Personality cat() {
         return new Personality("aloof")
                 .with(Need.AFFECTION, 0.015)
@@ -54,10 +54,28 @@ public final class Personality {
                 .with(Need.HUNGER,    0.06)
                 .with(Need.ENERGY,    0.04)
                 .bias("wander", 1.5)
-                .bias("seek-petting", 0.6);
+                .bias("seek-petting", 0.6)
+                // Cat-only activities.
+                .bias("stalk-pointer", 1.0)
+                .bias("high-perch-leap", 1.0)
+                .bias("grooming", 1.0)
+                .bias("knock-something-off", 1.0)
+                // Dog/Bird/Ducky-only activities — disabled.
+                .bias("fetch-cursor", 0.0)
+                .bias("greet-foreground", 0.0)
+                .bias("dig", 0.0)
+                .bias("flit", 0.0)
+                .bias("circle", 0.0)
+                .bias("startle-flush", 0.0)
+                .bias("perch-sing", 0.0)
+                .bias("waddle-loop", 0.0)
+                .bias("crawl-sneak", 0.0)
+                .bias("crouch-pout", 0.0)
+                .bias("quack-combo", 0.0)
+                .bias("follow-cursor", 0.0);
     }
 
-    /** Dog: friendly — wants attention, loves to wander and play, eats often. */
+    /** Dog: friendly — wants attention, loves to wander/play, fetches cursor, greets app switches. */
     public static Personality dog() {
         return new Personality("friendly")
                 .with(Need.AFFECTION, 0.08)
@@ -66,10 +84,30 @@ public final class Personality {
                 .with(Need.ENERGY,    0.06)
                 .bias("wander", 1.3)
                 .bias("seek-petting", 1.3)
-                .bias("play-ball", 1.2);
+                .bias("play-ball", 1.2)
+                .bias("zoomies", 1.2)
+                // Dog-only activities.
+                .bias("fetch-cursor", 1.0)
+                .bias("greet-foreground", 1.0)
+                .bias("dig", 1.0)
+                // Activities Dog does NOT do.
+                .bias("stalk-pointer", 0.0)
+                .bias("high-perch-leap", 0.0)
+                .bias("grooming", 0.0)
+                .bias("knock-something-off", 0.0)
+                .bias("flit", 0.0)
+                .bias("circle", 0.0)
+                .bias("startle-flush", 0.0)
+                .bias("perch-sing", 0.0)
+                .bias("waddle-loop", 0.0)
+                .bias("crawl-sneak", 0.0)
+                .bias("crouch-pout", 0.0)
+                .bias("quack-combo", 0.0)
+                .bias("follow-cursor", 0.0)
+                .bias("disappear-reappear", 0.0);
     }
 
-    /** Ducky: needy — wants petting, plays a lot, naps less. */
+    /** Ducky: needy — wants petting, waddles, follows the cursor, pouts when ignored. */
     public static Personality ducky() {
         return new Personality("needy")
                 .with(Need.AFFECTION, 0.10)
@@ -77,20 +115,62 @@ public final class Personality {
                 .with(Need.HUNGER,    0.08)
                 .with(Need.ENERGY,    0.05)
                 .bias("seek-petting", 1.6)
-                .bias("play-ball", 1.4);
+                .bias("play-ball", 1.4)
+                // Ducky-only activities.
+                .bias("waddle-loop", 1.0)
+                .bias("crawl-sneak", 1.0)
+                .bias("crouch-pout", 1.0)
+                .bias("quack-combo", 1.0)
+                .bias("follow-cursor", 1.0)
+                // Activities Ducky does NOT do.
+                .bias("stalk-pointer", 0.0)
+                .bias("high-perch-leap", 0.0)
+                .bias("grooming", 0.0)
+                .bias("knock-something-off", 0.0)
+                .bias("fetch-cursor", 0.0)
+                .bias("greet-foreground", 0.0)
+                .bias("dig", 0.0)
+                .bias("flit", 0.0)
+                .bias("circle", 0.0)
+                .bias("startle-flush", 0.0)
+                .bias("perch-sing", 0.0)
+                .bias("wander", 0.5)
+                .bias("zoomies", 0.0)
+                .bias("disappear-reappear", 0.0);
     }
 
-    /** Bird: skittish — sleeps often, avoids people, never climbs windows. */
+    /** Bird: skittish — sleeps often, flits between perches, startles easily, sings on perch. */
     public static Personality bird() {
         return new Personality("skittish")
                 .with(Need.AFFECTION, 0.02)
                 .with(Need.BOREDOM,   0.04)
                 .with(Need.HUNGER,    0.05)
                 .with(Need.ENERGY,    0.10)
-                .bias("seek-petting", 0.4)
+                .bias("seek-petting", 0.0)
                 // Bird never "climb"s, but the activity is gone; the 0.0 entry
                 // is asserted by SmokeTest as a sanity check on the bias map.
                 .bias("climb-foreground", 0.0)
-                .bias("sleep", 1.3);
+                .bias("sleep", 1.3)
+                .bias("disappear-reappear", 1.5)
+                // Bird-only activities.
+                .bias("flit", 1.0)
+                .bias("circle", 1.0)
+                .bias("startle-flush", 1.0)
+                .bias("perch-sing", 1.0)
+                // Activities Bird does NOT do.
+                .bias("stalk-pointer", 0.0)
+                .bias("high-perch-leap", 0.0)
+                .bias("grooming", 0.0)
+                .bias("knock-something-off", 0.0)
+                .bias("fetch-cursor", 0.0)
+                .bias("greet-foreground", 0.0)
+                .bias("dig", 0.0)
+                .bias("waddle-loop", 0.0)
+                .bias("crawl-sneak", 0.0)
+                .bias("crouch-pout", 0.0)
+                .bias("quack-combo", 0.0)
+                .bias("follow-cursor", 0.0)
+                .bias("zoomies", 0.0)
+                .bias("play-ball", 0.0);
     }
 }

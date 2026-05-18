@@ -28,10 +28,17 @@ public final class NeedSet {
         levels.put(n, clamp(levels.get(n) + delta));
     }
 
-    /** Apply per-second decay using the given personality multipliers. */
-    public synchronized void decay(Personality p, double seconds) {
+    /**
+     * Apply per-second decay using the given personality multipliers, scaled
+     * by the per-pet activity slider so a hyperactive pet wears its needs
+     * down (and therefore triggers play/seek-petting/etc.) noticeably faster
+     * than a lethargic one. The factor is {@code max(0.25, activity)} so even
+     * the lethargic end still decays gradually.
+     */
+    public synchronized void decay(Personality p, double seconds, double activityLevel) {
+        double factor = Math.max(0.25, activityLevel);
         for (Need n : Need.values()) {
-            levels.put(n, clamp(levels.get(n) - p.decayPerSecond(n) * seconds));
+            levels.put(n, clamp(levels.get(n) - p.decayPerSecond(n) * seconds * factor));
         }
     }
 

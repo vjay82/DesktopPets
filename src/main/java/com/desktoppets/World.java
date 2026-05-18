@@ -1,5 +1,8 @@
 package com.desktoppets;
 
+import java.awt.MouseInfo;
+import java.awt.Point;
+import java.awt.PointerInfo;
 import java.awt.Rectangle;
 import java.util.List;
 import java.util.Objects;
@@ -52,6 +55,35 @@ public record World(int screenW, int screenH, Rectangle foreground, Rectangle ta
     public int taskbarTopY(int defaultY) {
         return taskbar != null ? taskbar.y : defaultY;
     }
+
+    /**
+     * Current mouse cursor location in logical screen coordinates, or
+     * {@code null} if it can't be determined (headless, no display, race
+     * with screen-config change). Cursor-aware activities (stalk-pointer,
+     * fetch-cursor, follow-cursor) consult this each tick — we deliberately
+     * do NOT cache it because the user moves the mouse much faster than the
+     * 150 ms World cache TTL.
+     */
+    public static Point cursorPos() {
+        try {
+            PointerInfo pi = MouseInfo.getPointerInfo();
+            return pi == null ? null : pi.getLocation();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * Edge signal: true if the foreground window changed in the last
+     * {@value #FG_RECENT_MS} ms (i.e. the user just switched apps). Used by
+     * "greet-foreground" / "startle-flush" so pets react to app switches
+     * but don't continuously fire while the same window stays in focus.
+     */
+    public boolean foregroundJustChanged() {
+        return foreground != null && foregroundStableMs < FG_RECENT_MS;
+    }
+
+    private static final long FG_RECENT_MS = 600L;
 
     /**
      * Pet "stay on current surface" tolerance, in logical pixels.

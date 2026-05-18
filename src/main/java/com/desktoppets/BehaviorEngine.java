@@ -53,7 +53,7 @@ public final class BehaviorEngine {
             double seconds = (now - previous) / 1_000_000_000.0;
             previous = now;
 
-            pet.needs.decay(pet.personality, seconds);
+            pet.needs.decay(pet.personality, seconds, pet.activityLevel);
 
             World world = World.snapshot(
                     (int) pet.screen.getWidth(),
@@ -174,8 +174,8 @@ public final class BehaviorEngine {
         if (cooldown > 0) {
             nextEligibleAt.put(a.name(), nowMs + cooldown);
         }
-        // Forced rest 4..14 s before the engine considers another activity.
-        long rest = 4_000L + ThreadLocalRandom.current().nextLong(0, 10_000L);
+        // Forced rest 2..7 s before the engine considers another activity.
+        long rest = 2_000L + ThreadLocalRandom.current().nextLong(0, 5_000L);
         restUntilMs = nowMs + rest;
     }
 
@@ -192,8 +192,26 @@ public final class BehaviorEngine {
             // 60..180 s (1..3 min) — sudden burst.
             return 60_000L + ThreadLocalRandom.current().nextLong(0, 120_000L);
         }
-        // Need-driven activities (sleep/eat/seek-petting/play-ball) have no
-        // cooldown — they're naturally gated by their underlying need.
+        if (a == Activities.PLAY_BALL) {
+            // 45..120 s — so the ambient floor doesn't cause ball-spam, but
+            // bored pets still get rapid play sessions (urgent path bypasses
+            // cooldowns anyway).
+            return 45_000L + ThreadLocalRandom.current().nextLong(0, 75_000L);
+        }
+        if (a == Activities.SEEK_PETTING) {
+            // 40..100 s for the same reason as PLAY_BALL.
+            return 40_000L + ThreadLocalRandom.current().nextLong(0, 60_000L);
+        }
+        if (a == Activities.GREET_PET) {
+            // 60..180 s — visible but not constant.
+            return 60_000L + ThreadLocalRandom.current().nextLong(0, 120_000L);
+        }
+        if (a == Activities.CHASE_PET) {
+            // 90..240 s — sprinting at each other is rarer.
+            return 90_000L + ThreadLocalRandom.current().nextLong(0, 150_000L);
+        }
+        // Other need-driven activities (sleep/eat) have no cooldown — they're
+        // naturally gated by their underlying need (priority 0 when satisfied).
         return 0L;
     }
 

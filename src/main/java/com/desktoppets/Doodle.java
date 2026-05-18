@@ -120,7 +120,21 @@ final class Doodle {
             case "bird":  return resolveBird(p);
             case "heart": return tile("Heart", safeInt(p, 1, 0) % 24);
             case "prop":  return prop(p.length > 1 ? p[1] : "");
+            case "emote": return emote(p.length > 1 ? p[1] : "");
             default:      return null;
+        }
+    }
+
+    private static String emote(String name) {
+        switch (name) {
+            case "sparkle":    return "Sprites/Emote/sparkle.svg";
+            case "note":       return "Sprites/Emote/note.svg";
+            case "bang":       return "Sprites/Emote/bang.svg";
+            case "paw":        return "Sprites/Emote/paw.svg";
+            case "drop":       return "Sprites/Emote/drop.svg";
+            case "mini-heart": return "Sprites/Emote/mini-heart.svg";
+            case "target":     return "Sprites/Emote/target.svg";
+            default:           return null;
         }
     }
 
@@ -154,7 +168,7 @@ final class Doodle {
             case "idle":       return tile("Dog/Idle",       i % 4);
             case "walk-left":  return tile("Dog/Walk/Left",  i % 4);
             case "walk-right": return tile("Dog/Walk/Right", i % 4);
-            case "sit":        return tile("Dog/Idle", 2);   // tail down = sitting
+            case "sit":        return "Sprites/Dog/Sit/sit.svg"; // dedicated haunches-down pose
             case "stretch":    return tile("Dog/Idle", 1);   // tail up = alert/stretch
             case "look":       return tile("Dog/Idle", 1 + (i % 2));
             case "sleep":      return tile("Dog/Idle", 2);

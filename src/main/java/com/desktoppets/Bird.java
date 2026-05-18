@@ -30,7 +30,11 @@ public final class Bird extends Pet {
      */
     @Override
     public void walkTo(int targetX, int targetY) {
-        Point start = frame.getLocation();
+        // Use logicalLocation() rather than frame.getLocation(): the latter
+        // returns the JFrame's CLIPPED bounds when the bird is partially
+        // off-monitor (moveFrameTo narrows the frame for edge slides), so
+        // start.x would be wrong and the flight would over- or undershoot.
+        Point start = logicalLocation();
         int dx = targetX - start.x;
         if (dx == 0) {
             idle();
@@ -41,11 +45,14 @@ public final class Bird extends Pet {
         List<String> frameSet = goingRight ? walkRightFrames() : walkLeftFrames();
         int steps = Math.abs(dx);
         int spriteIndex = 0;
+        int baseDelay = walkStepDelayMs();
         for (int i = 1; i <= steps; i++) {
             if (interrupted() || hovered || clicked) {
                 break;
             }
-            sleepInterruptible(walkStepDelayMs());
+            // Match base walkTo: ease-in/ease-out so take-offs and landings
+            // have weight instead of starting/stopping abruptly.
+            sleepInterruptible(easedFlightStepDelay(baseDelay, i, steps));
             if ((i - 1) % pixelsPerSpriteStep() == 0) {
                 Sprites.apply(petLabel, frameSet.get(spriteIndex % frameSet.size()));
                 spriteIndex++;
@@ -54,7 +61,24 @@ public final class Bird extends Pet {
             int y = start.y + (int) Math.round(dyTotal * (i / (double) steps));
             moveFrameTo(start.x + signedStep, y);
         }
+        // Hold the final wing-beat frame for one beat so the perch landing
+        // reads as a settle instead of an abrupt cut to idle[0].
+        sleepInterruptible(baseDelay);
         idle();
+    }
+
+    /** Mirror of Pet.easedStepDelay (private there); inlined to avoid
+     *  widening that helper's visibility just for this subclass. */
+    private static long easedFlightStepDelay(int baseDelay, int stepIndex1Based, int totalSteps) {
+        int rampSteps = Math.min(8, Math.max(1, totalSteps / 4));
+        int leftDist  = stepIndex1Based - 1;
+        int rightDist = totalSteps - stepIndex1Based;
+        int edgeDist  = Math.min(leftDist, rightDist);
+        if (edgeDist >= rampSteps) {
+            return baseDelay;
+        }
+        double mult = 1.0 + (rampSteps - edgeDist) / (double) rampSteps;
+        return Math.round(baseDelay * mult);
     }
 
     /**
@@ -68,11 +92,15 @@ public final class Bird extends Pet {
     public void walkAlongFloor(World world, int targetX) {
         int targetY = floorYAt(world, targetX);
         // Birds prefer high perches: if a window is the topmost (z-order)
-        // visible window at targetX, fly to its top directly; otherwise drop
-        // to the floor at targetX. We only consider the FIRST overlap so the
-        // bird doesn't try to land on a window that's hidden behind another.
+        // visible window under the bird's body at the destination, fly to
+        // its top directly; otherwise drop to the floor at targetX. We check
+        // the bird's mid-column (targetX + petW/2) rather than just targetX,
+        // so the bird doesn't pick a perch whose body it would mostly hang
+        // off (only the leftmost pixel inside the window).
+        int petW = effectiveWidth();
+        int midX = targetX + petW / 2;
         for (Rectangle r : world.topmostWindows()) {
-            if (targetX >= r.x && targetX < r.x + r.width) {
+            if (midX >= r.x && midX < r.x + r.width) {
                 int feetH = Math.max(1, (int) Math.round(effectiveHeight() * feetYRatio()));
                 int candidate = r.y - feetH;
                 if (candidate >= 0 && candidate < targetY) {

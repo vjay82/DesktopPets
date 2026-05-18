@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" shape-rendering="crispEdges">
-<defs><linearGradient id="belly" x1="0" y1="32" x2="0" y2="34" gradientUnits="userSpaceOnUse" spreadMethod="pad"><stop offset="0" stop-color="#f7eede"/><stop offset="1" stop-color="#c89a6a"/></linearGradient></defs>
+<defs><linearGradient id="belly" x1="0" y1="32" x2="0" y2="36" gradientUnits="userSpaceOnUse" spreadMethod="pad"><stop offset="0" stop-color="#f7eede"/><stop offset="1" stop-color="#c89a6a"/></linearGradient></defs>
+<!-- saddle stripe across back -->
 <rect x="18" y="25" width="11" height="2" fill="#4a2c18"/>
 <rect x="17" y="25" width="1" height="2" fill="#d4a373"/>
 <rect x="29" y="25" width="2" height="2" fill="#d4a373"/>
+<!-- upper body -->
 <rect x="17" y="27" width="14" height="2" fill="#d4a373"/>
 <rect x="17" y="29" width="14" height="3" fill="#d4a373"/>
 <rect x="17" y="32" width="1" height="1" fill="#a47a52"/>
@@ -12,6 +14,12 @@
 <rect x="18" y="33" width="1" height="1" fill="#a47a52"/>
 <rect x="29" y="33" width="1" height="1" fill="#a47a52"/>
 <rect x="19" y="33" width="10" height="1" fill="url(#belly)"/>
+<!-- folded haunch on the left (rear of the dog, sitting on the floor) -->
+<rect x="15" y="30" width="3" height="2" fill="#a47a52"/>
+<rect x="15" y="32" width="4" height="3" fill="#a47a52"/>
+<rect x="16" y="35" width="5" height="2" fill="#d4a373"/>
+<rect x="17" y="37" width="4" height="1" fill="url(#belly)"/>
+<!-- head and muzzle (right) -->
 <rect x="29" y="23" width="2" height="2" fill="#4a2c18"/>
 <rect x="28" y="25" width="2" height="5" fill="#4a2c18"/>
 <rect x="27" y="29" width="2" height="2" fill="#4a2c18"/>
@@ -21,17 +29,15 @@
 <rect x="32" y="26" width="4" height="2" fill="url(#belly)"/>
 <rect x="32" y="28" width="5" height="2" fill="url(#belly)"/>
 <rect x="33" y="30" width="3" height="1" fill="url(#belly)"/>
-<rect x="32" y="25" width="1" height="1" fill="#1a1410"/>
+<rect x="32" y="25" width="2" height="1" fill="#1a1410"/>
 <rect x="35" y="27" width="1" height="1" fill="#1a1410"/>
-<rect x="15" y="26" width="2" height="2" fill="#4a2c18"/>
-<rect x="14" y="26" width="1" height="2" fill="#4a2c18"/>
-<rect x="13" y="26" width="1" height="1" fill="#d4a373"/>
-<rect x="12" y="26" width="1" height="1" fill="url(#belly)"/>
-<rect x="19" y="34" width="2" height="3" fill="#d4a373"/>
-<rect x="19" y="37" width="2" height="1" fill="url(#belly)"/>
-<rect x="22" y="35" width="2" height="2" fill="#a47a52"/>
-<rect x="22" y="37" width="2" height="1" fill="url(#belly)"/>
-<rect x="25" y="35" width="2" height="2" fill="#a47a52"/>
+<!-- tail (curled up, off the rear haunch) -->
+<rect x="14" y="28" width="2" height="2" fill="#4a2c18"/>
+<rect x="13" y="27" width="1" height="2" fill="#4a2c18"/>
+<rect x="12" y="26" width="1" height="2" fill="#d4a373"/>
+<rect x="12" y="25" width="1" height="1" fill="url(#belly)"/>
+<!-- front legs (right side, under chest), straight to floor -->
+<rect x="25" y="34" width="2" height="3" fill="#d4a373"/>
 <rect x="25" y="37" width="2" height="1" fill="url(#belly)"/>
 <rect x="28" y="34" width="2" height="3" fill="#d4a373"/>
 <rect x="28" y="37" width="2" height="1" fill="url(#belly)"/>
