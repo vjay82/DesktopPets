@@ -1,12 +1,14 @@
-DESKTOP PET CONFIG
+# DESKTOP PETS CONFIG
+# Pets: Ducky, Cat, Bird (edit via tray Settings).
 
-*Pets: (Ducky, Cat, Bird)
-
-e.g.
-Ducky
-Bird
-Cat
-
-Enter pets after this line:
-bird 
-cat
+pets=ducky,cat,dog,bird
+pet.size=64
+pet.activity=1.00
+pos.bird=1266,968
+pos.cat=601,968
+pos.dog=-689,2052
+pos.ducky=-1670,2057
+mon.bird=0,0,1920,1080
+mon.cat=0,0,1920,1080
+mon.dog=-1920,953,1920,1200
+mon.ducky=-1920,953,1920,1200
