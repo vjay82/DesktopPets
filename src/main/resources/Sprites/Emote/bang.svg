@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" shape-rendering="crispEdges">
-<rect x="9"  y="2" width="6" height="2" fill="#d94747"/>
-<rect x="9"  y="4" width="6" height="10" fill="#d94747"/>
-<rect x="9"  y="14" width="6" height="2" fill="#d94747"/>
-<rect x="9"  y="18" width="6" height="4" fill="#d94747"/>
-<rect x="10" y="3"  width="4" height="1"  fill="#ff7a7a"/>
-<rect x="10" y="5"  width="2" height="8"  fill="#ff7a7a"/>
-<rect x="10" y="19" width="2" height="2"  fill="#ff7a7a"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <g transform="scale(0.125 0.125) translate(0.000000,192.000000) scale(1.000000,-1.000000)" fill="#d94747" stroke="none"><path d="M74 174 c-3 -3 -3 -106 0 -108 3 -3 42 -3 44 0 3 3 3 106 0 108 -3 3
+-42 3 -44 0z"/><path d="M74 46 c-3 -3 -3 -26 0 -28 3 -3 42 -3 44 0 3 3 3 26 0 28 -3 3 -42
+3 -44 0z"/></g>
+  <g transform="scale(0.125 0.125) translate(0.000000,192.000000) scale(1.000000,-1.000000)" fill="#ff7a7a" stroke="none"><path d="M82 166 c-2 -2 -2 -2 0 -4 1 -2 3 -2 14 -2 11 0 13 0 15 2 1 2 1 2 0
+4 -2 2 -4 2 -15 2 -11 0 -13 0 -14 -2z"/><path d="M82 150 c-3 -3 -3 -58 0 -60 2 -3 10 -3 12 0 3 3 3 58 0 60 -2 3 -10
+3 -12 0z"/><path d="M82 38 c-3 -2 -3 -10 0 -12 2 -3 10 -3 12 0 3 2 3 10 0 12 -2 3 -10
+3 -12 0z"/></g>
 </svg>

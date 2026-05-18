@@ -2,6 +2,7 @@ package com.desktoppets.api;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -12,6 +13,7 @@ import com.desktoppets.BirdVisitor;
 import com.desktoppets.Config;
 import com.desktoppets.Doodle;
 import com.desktoppets.Log;
+import com.desktoppets.Pet;
 import com.desktoppets.PetSupervisor;
 import com.desktoppets.World;
 
@@ -187,6 +189,83 @@ public final class DesktopPetsApi {
         if (species == null || size <= 0) return null;
         String key = species.toLowerCase(java.util.Locale.ROOT) + "/idle/0";
         return Doodle.icon(key, size);
+    }
+
+    /**
+     * Lightweight descriptor for a pet species exposed via
+     * {@link #listAvailablePets()}. Lets embedding applications (notably
+     * autoMATE's settings dialog) discover the catalogue at runtime instead
+     * of hard-coding species names locally.
+     */
+    public static final class PetEntry {
+        private final String id;
+        private final String displayName;
+
+        public PetEntry(String id, String displayName) {
+            this.id = id;
+            this.displayName = displayName;
+        }
+
+        /** Lower-case species id (e.g. {@code "ducky"}) — same string the
+         *  {@link DesktopPetsConfig#setCount(String, int)} API expects. */
+        public String id() {
+            return id;
+        }
+
+        /** Human-readable name suitable for UI labels (e.g. {@code "Ducky"}). */
+        public String displayName() {
+            return displayName;
+        }
+
+        /** Preview icon rendered at {@code size} px from the idle sprite. */
+        public ImageIcon previewIcon(int size) {
+            return getPreviewIcon(id, size);
+        }
+    }
+
+    /**
+     * Returns the catalogue of user-selectable resident pet species. Visitor-
+     * only species (currently {@code bird}, spawned ad-hoc by
+     * {@link BirdVisitor}) are NOT included — they aren't valid keys for
+     * {@link DesktopPetsConfig#setCount(String, int)}.
+     *
+     * <p>The list is stable across calls and may be queried before
+     * {@link #start}. Embedding apps should call this once when building
+     * their pet-selection UI so new species added to this library
+     * automatically appear without code changes on their side.
+     */
+    public static List<PetEntry> listAvailablePets() {
+        return List.of(
+                new PetEntry("ducky", "Ducky"),
+                new PetEntry("cat",   "Cat"),
+                new PetEntry("dog",   "Dog"));
+    }
+
+    /**
+     * Globally suspend or resume all currently-spawned resident pets.
+     * <p>When suspending, each pet walks off the nearest edge of its monitor
+     * and then stops behaving (no idling, no activities, no topmost
+     * reassertion). When resuming, each pet walks back in from the same edge
+     * to roughly where it left.
+     *
+     * <p>The pet roster is preserved across suspend/resume (no spawn/dispose,
+     * no thread churn), so this is cheap to toggle frequently — e.g. from a
+     * 10-second Teams-meeting / screen-presenting watchdog.
+     *
+     * <p>Idempotent and safe to call from any thread. No-op if the API has
+     * not been started.
+     */
+    public static void setSuspended(boolean suspended) {
+        synchronized (LOCK) {
+            if (!RUNNING.get() || supervisor == null) return;
+            for (Pet p : supervisor.livePets()) {
+                if (suspended) {
+                    p.requestHide();
+                } else {
+                    p.requestShow();
+                }
+            }
+        }
     }
 
     // ---------------- internals ----------------

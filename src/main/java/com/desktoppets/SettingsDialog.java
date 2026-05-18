@@ -26,6 +26,8 @@ import javax.swing.UnsupportedLookAndFeelException;
  */
 public final class SettingsDialog extends JDialog {
 
+    private static final long serialVersionUID = 1L;
+
     // Bird is intentionally NOT in this list: it's now a "visitor" species
     // spawned ad-hoc by {@link BirdVisitor} near a resident pet and
     // self-disposes after a short stay, so the user can't toggle it as a
@@ -68,7 +70,7 @@ public final class SettingsDialog extends JDialog {
         sizeSlider.setMajorTickSpacing(16);
         sizeSlider.setMinorTickSpacing(8);
         sizeSlider.setPaintTicks(true);
-        sizeSlider.addChangeListener(e -> {
+        sizeSlider.addChangeListener(_ -> {
             int v = sizeSlider.getValue();
             sizeLabel.setText("Pet size: " + v + " px");
             if (!sizeSlider.getValueIsAdjusting()) {
@@ -84,7 +86,7 @@ public final class SettingsDialog extends JDialog {
         activitySlider.setMajorTickSpacing(50);
         activitySlider.setMinorTickSpacing(10);
         activitySlider.setPaintTicks(true);
-        activitySlider.addChangeListener(e -> {
+        activitySlider.addChangeListener(_ -> {
             int v = activitySlider.getValue();
             activityLabel.setText("Activity: " + v + " %");
             if (!activitySlider.getValueIsAdjusting()) {
@@ -99,7 +101,7 @@ public final class SettingsDialog extends JDialog {
 
         JButton ok = new JButton("OK");
         JButton cancel = new JButton("Cancel");
-        ok.addActionListener(e -> {
+        ok.addActionListener(_ -> {
             List<String> selected = new ArrayList<>();
             for (Map.Entry<String, JCheckBox> en : boxes.entrySet()) {
                 if (en.getValue().isSelected()) {
@@ -120,7 +122,7 @@ public final class SettingsDialog extends JDialog {
             supervisor.setPetSize(origSize);
             supervisor.setActivityLevel(origActivity);
         };
-        cancel.addActionListener(e -> { revert.run(); dispose(); });
+        cancel.addActionListener(_ -> { revert.run(); dispose(); });
 
         // Closing via the window's X button bypasses the Cancel handler.
         // Hook windowClosing so the revert still runs in that case.

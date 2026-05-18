@@ -96,7 +96,7 @@ public final class PetSupervisor {
                 }
                 try {
                     Pet pet = PetFactory.create(species);
-                    pet.paused.set(paused);
+                    pet.setPaused(paused);
                     pet.activityLevel = activityLevel;
                     pet.setSize(petSize);
                     Thread t = new Thread(pet, "pet-" + key);
@@ -120,7 +120,7 @@ public final class PetSupervisor {
     public synchronized void setPaused(boolean p) {
         this.paused = p;
         for (PetHandle h : live.values()) {
-            h.pet.paused.set(p);
+            h.pet.setPaused(p);
         }
         Log.info("supervisor", "paused=" + p);
     }
@@ -186,7 +186,7 @@ public final class PetSupervisor {
     public void spawnVisitor(Pet pet) {
         pet.activityLevel = activityLevel;
         pet.setSize(petSize);
-        pet.paused.set(paused);
+        pet.setPaused(paused);
         Thread t = new Thread(pet,
                 "pet-visitor-" + pet.name + "-" + Long.toHexString(System.nanoTime()));
         t.setDaemon(true);

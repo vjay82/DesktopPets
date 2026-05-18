@@ -50,10 +50,10 @@ public final class TrayApp {
         trayIcon = new TrayIcon(img, "Desktop Pets", menu);
         trayIcon.setImageAutoSize(true);
 
-        settings.addActionListener(e -> SwingUtilities.invokeLater(this::openSettings));
-        trayIcon.addActionListener(e -> SwingUtilities.invokeLater(this::openSettings));
-        pause.addItemListener(e -> supervisor.setPaused(pause.getState()));
-        quit.addActionListener(e -> shutdown(0));
+        settings.addActionListener(_ -> SwingUtilities.invokeLater(this::openSettings));
+        trayIcon.addActionListener(_ -> SwingUtilities.invokeLater(this::openSettings));
+        pause.addItemListener(_ -> supervisor.setPaused(pause.getState()));
+        quit.addActionListener(_ -> shutdown(0));
 
         try {
             SystemTray.getSystemTray().add(trayIcon);

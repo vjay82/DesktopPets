@@ -1,89 +1,80 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" shape-rendering="crispEdges">
 <!--
-  Beagle "sit" pose, front view. Designed to occupy roughly the same
-  vertical extent as Idle/tile000 (y ~22..38, height ~16 px in the
-  48x48 viewBox) so a sitting dog visually shrinks onto its haunches
-  rather than stretching taller than its standing pose. The previous
-  version extended from y=12 to y=38 (~26 px), making the sitting
-  beagle render at roughly 2x the height of the standing one.
+  Beagle "sit" pose, side view facing right. Intentionally reuses the
+  exact same head, tail, saddle, and body cluster as Idle/tile000 so
+  the sit reads as the same dog. Only the leg region is changed: rear
+  legs are tucked under, the rump drops to the ground at the back,
+  and the front legs become a single straight column. Ground line is
+  y=38 to match the standing tiles.
 -->
 <defs>
-  <linearGradient id="belly" x1="0" y1="28" x2="0" y2="38" gradientUnits="userSpaceOnUse" spreadMethod="pad">
+  <linearGradient id="belly" x1="0" y1="32" x2="0" y2="34" gradientUnits="userSpaceOnUse" spreadMethod="pad">
     <stop offset="0" stop-color="#f7eede"/>
     <stop offset="1" stop-color="#c89a6a"/>
   </linearGradient>
 </defs>
 
-<!-- Floppy beagle ears flanking the head. Kept short so the head crown sits at idle level. -->
-<rect x="16" y="23" width="3" height="5" fill="#4a2c18"/>
-<rect x="29" y="23" width="3" height="5" fill="#4a2c18"/>
-<rect x="16" y="27" width="3" height="1" fill="#a47a52"/>
-<rect x="29" y="27" width="3" height="1" fill="#a47a52"/>
+<!-- ============================================================ -->
+<!-- Identical-to-idle elements: back/saddle, body, head, tail.   -->
+<!-- ============================================================ -->
 
-<!-- Head: saddle cap on top, tan face below. -->
-<rect x="19" y="22" width="10" height="2" fill="#4a2c18"/>
-<rect x="19" y="24" width="10" height="4" fill="#d4a373"/>
+<!-- Back saddle (brown) on top of the body. -->
+<rect x="18" y="25" width="11" height="2" fill="#4a2c18"/>
+<rect x="17" y="25" width="1" height="2" fill="#d4a373"/>
+<rect x="29" y="25" width="2" height="2" fill="#d4a373"/>
 
-<!-- Beagle face mask: dark eyebrow patches with a cream blaze between. -->
-<rect x="19" y="24" width="3" height="2" fill="#4a2c18"/>
-<rect x="26" y="24" width="3" height="2" fill="#4a2c18"/>
-<rect x="23" y="24" width="2" height="2" fill="url(#belly)"/>
+<!-- Body (tan), 14 px wide like idle. -->
+<rect x="17" y="27" width="14" height="2" fill="#d4a373"/>
+<rect x="17" y="29" width="14" height="3" fill="#d4a373"/>
 
-<!-- Eyes: forward-facing pupils. -->
-<rect x="20" y="25" width="1" height="1" fill="#1a1410"/>
-<rect x="27" y="25" width="1" height="1" fill="#1a1410"/>
+<!-- Belly highlights (cream). -->
+<rect x="17" y="32" width="1" height="1" fill="#a47a52"/>
+<rect x="30" y="32" width="1" height="1" fill="#a47a52"/>
+<rect x="18" y="32" width="12" height="1" fill="url(#belly)"/>
 
-<!-- Snout (cream) with black nose centered. -->
-<rect x="22" y="26" width="4" height="2" fill="url(#belly)"/>
-<rect x="23" y="26" width="2" height="1" fill="#1a1410"/>
+<!-- Head (identical to idle): crown, ear, snout, eye, nose. -->
+<rect x="29" y="23" width="2" height="2" fill="#4a2c18"/>
+<rect x="28" y="25" width="2" height="5" fill="#4a2c18"/>
+<rect x="27" y="29" width="2" height="2" fill="#4a2c18"/>
+<rect x="30" y="23" width="4" height="1" fill="#4a2c18"/>
+<rect x="30" y="24" width="5" height="2" fill="#d4a373"/>
+<rect x="30" y="26" width="2" height="2" fill="#d4a373"/>
+<rect x="32" y="26" width="4" height="2" fill="url(#belly)"/>
+<rect x="32" y="28" width="5" height="2" fill="url(#belly)"/>
+<rect x="33" y="30" width="3" height="1" fill="url(#belly)"/>
+<rect x="32" y="25" width="1" height="1" fill="#1a1410"/>
+<rect x="35" y="27" width="1" height="1" fill="#1a1410"/>
 
-<!-- Mouth corners (classic dog smile). -->
-<rect x="21" y="27" width="1" height="1" fill="#4a2c18"/>
-<rect x="26" y="27" width="1" height="1" fill="#4a2c18"/>
+<!-- Tail (identical to idle): floppy, tip raised behind. -->
+<rect x="15" y="26" width="2" height="2" fill="#4a2c18"/>
+<rect x="14" y="25" width="1" height="2" fill="#4a2c18"/>
+<rect x="13" y="24" width="1" height="2" fill="#d4a373"/>
+<rect x="12" y="23" width="1" height="1" fill="url(#belly)"/>
 
-<!-- Tail tip just visible behind the right haunch. -->
-<rect x="31" y="30" width="2" height="2" fill="#4a2c18"/>
-<rect x="32" y="29" width="1" height="2" fill="#d4a373"/>
+<!-- ============================================================ -->
+<!-- Sit-specific lower body: rump on ground + folded rear + front. -->
+<!-- ============================================================ -->
 
-<!-- Chest / body: compressed so the upright sit stays short. -->
-<rect x="18" y="28" width="12" height="1" fill="#d4a373"/>
-<rect x="17" y="29" width="14" height="2" fill="#d4a373"/>
-<rect x="20" y="29" width="8" height="2" fill="url(#belly)"/>
+<!-- Rump dropped down to the ground at the back. -->
+<rect x="15" y="33" width="7" height="4" fill="#d4a373"/>
+<rect x="16" y="34" width="6" height="3" fill="url(#belly)"/>
 
-<!-- Haunches: rear thighs splayed beside the body in a beagle "frog sit". -->
-<rect x="15" y="31" width="3" height="5" fill="#d4a373"/>
-<rect x="30" y="31" width="3" height="5" fill="#d4a373"/>
-<rect x="15" y="33" width="3" height="1" fill="#a47a52"/>
-<rect x="30" y="33" width="3" height="1" fill="#a47a52"/>
-
-<!-- Front legs: short columns dropping straight down from the chest to the floor. -->
-<rect x="19" y="31" width="3" height="6" fill="#d4a373"/>
-<rect x="26" y="31" width="3" height="6" fill="#d4a373"/>
-<rect x="20" y="32" width="1" height="4" fill="#a47a52"/>
-<rect x="26" y="32" width="1" height="4" fill="#a47a52"/>
-
-<!-- Rear paws fanning out beside the front paws. -->
-<rect x="14" y="36" width="5" height="2" fill="#d4a373"/>
-<rect x="29" y="36" width="5" height="2" fill="#d4a373"/>
-<rect x="14" y="37" width="5" height="1" fill="#a47a52"/>
-<rect x="29" y="37" width="5" height="1" fill="#a47a52"/>
-<rect x="15" y="37" width="1" height="1" fill="#1a1410"/>
-<rect x="17" y="37" width="1" height="1" fill="#1a1410"/>
-<rect x="30" y="37" width="1" height="1" fill="#1a1410"/>
-<rect x="32" y="37" width="1" height="1" fill="#1a1410"/>
-
-<!-- Front paws: wider tips with toe gaps facing the viewer. -->
-<rect x="18" y="36" width="5" height="2" fill="#d4a373"/>
-<rect x="25" y="36" width="5" height="2" fill="#d4a373"/>
-<rect x="18" y="37" width="5" height="1" fill="#a47a52"/>
-<rect x="25" y="37" width="5" height="1" fill="#a47a52"/>
+<!-- Folded rear leg + hock running forward along the ground. -->
+<rect x="15" y="36" width="9" height="2" fill="#d4a373"/>
+<rect x="15" y="37" width="9" height="1" fill="#a47a52"/>
 <rect x="19" y="37" width="1" height="1" fill="#1a1410"/>
 <rect x="21" y="37" width="1" height="1" fill="#1a1410"/>
+<rect x="23" y="37" width="1" height="1" fill="#1a1410"/>
+
+<!-- Vertical front-leg column under the chest. -->
+<rect x="26" y="32" width="3" height="5" fill="#d4a373"/>
+<rect x="26" y="35" width="3" height="1" fill="#a47a52"/>
+<rect x="25" y="37" width="5" height="1" fill="#d4a373"/>
 <rect x="26" y="37" width="1" height="1" fill="#1a1410"/>
 <rect x="28" y="37" width="1" height="1" fill="#1a1410"/>
 
-<!-- Collar (red strap with brass tag) at base of neck, drawn last so it sits on top of the chest. -->
-<rect x="19" y="28" width="10" height="1" fill="#b53a2b"/>
-<rect x="23" y="29" width="2" height="1" fill="#e0c95a"/>
+<!-- Collar (red strap with brass tag) at base of neck. -->
+<rect x="23" y="27" width="6" height="1" fill="#b53a2b"/>
+<rect x="25" y="28" width="2" height="1" fill="#e0c95a"/>
 </svg>

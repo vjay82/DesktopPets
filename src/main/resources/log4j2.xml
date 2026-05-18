@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  log4j2 configuration for Desktop Pets.
+
+  - INFO to stdout, WARN/ERROR to stderr, both with the same pattern.
+  - Tag-style logger names (e.g. "pet:Whiskers", "engine:Whiskers", "win32")
+    are used directly as the logger name so they appear as %c in the layout
+    and can be selectively silenced via system property -Dlog4j2.level=...
+    or via a logger override here.
+-->
+<Configuration status="WARN">
+    <Appenders>
+        <Console name="STDOUT" target="SYSTEM_OUT">
+            <PatternLayout pattern="[%d{HH:mm:ss.SSS}] [%c] %m%n"/>
+            <Filters>
+                <ThresholdFilter level="WARN" onMatch="DENY" onMismatch="NEUTRAL"/>
+            </Filters>
+        </Console>
+        <Console name="STDERR" target="SYSTEM_ERR">
+            <PatternLayout pattern="[%d{HH:mm:ss.SSS}] [%c] %m%n"/>
+            <ThresholdFilter level="WARN" onMatch="ACCEPT" onMismatch="DENY"/>
+        </Console>
+    </Appenders>
+    <Loggers>
+        <Root level="info">
+            <AppenderRef ref="STDOUT"/>
+            <AppenderRef ref="STDERR"/>
+        </Root>
+    </Loggers>
+</Configuration>

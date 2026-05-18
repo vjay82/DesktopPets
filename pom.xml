@@ -22,6 +22,7 @@
         <main.class>com.desktoppets.Main</main.class>
         <jsvg.version>1.5.0</jsvg.version>
         <junit.version>5.11.0</junit.version>
+        <log4j2.version>2.24.1</log4j2.version>
     </properties>
 
     <dependencies>
@@ -29,6 +30,17 @@
             <groupId>com.github.weisj</groupId>
             <artifactId>jsvg</artifactId>
             <version>${jsvg.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>${log4j2.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>${log4j2.version}</version>
         </dependency>
 
         <dependency>
@@ -106,8 +118,13 @@
                                              silencing the "restricted method" warning that the Win32
                                              FFM bindings would otherwise produce on every launch. -->
                                         <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
+                                        <!-- Disable Log4j2's classpath scanner inside the shaded
+                                             jar so it doesn't warn about missing plugin metadata. -->
+                                        <Multi-Release>true</Multi-Release>
                                     </manifestEntries>
                                 </transformer>
+                                <!-- log4j2 plugin descriptors must be merged (one per dep). -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>
                         </configuration>
                     </execution>

@@ -8,12 +8,10 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -67,11 +65,16 @@ public final class Config {
         LOCK.lock();
         try {
             Properties p = readProperties();
-            Set<String> ordered = new LinkedHashSet<>();
+            // Preserve duplicates: PetSupervisor.reconcileCounts treats
+            // "cat,cat" as 2 instances. Deduping here would silently drop
+            // multi-instance configurations on round-trip.
+            StringBuilder sb = new StringBuilder();
             for (String pet : pets) {
-                ordered.add(pet.toLowerCase(Locale.ROOT));
+                if (pet == null) continue;
+                if (sb.length() > 0) sb.append(',');
+                sb.append(pet.toLowerCase(Locale.ROOT));
             }
-            p.setProperty(PETS_KEY, String.join(",", ordered));
+            p.setProperty(PETS_KEY, sb.toString());
             writeAtomically(p);
         } finally {
             LOCK.unlock();

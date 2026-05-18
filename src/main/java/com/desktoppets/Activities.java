@@ -498,7 +498,7 @@ public final class Activities {
      * ambient activities while the bird is on screen \u2014 you only get
      * one shot at the bird before it flies off on its own.
      */
-    public static final Activity HUNT_BIRD = new Activity("hunt-bird",
+    public static final Activity HUNT_BIRD = new Activity("hunt-visitor",
             (pet, _) -> pet.nearestVisitor(BIRD_HUNT_RADIUS) != null ? 3.5 : 0,
             (pet, world) -> {
                 Pet bird = pet.nearestVisitor(BIRD_HUNT_RADIUS);

@@ -5,7 +5,7 @@ import java.awt.Rectangle;
 import java.util.List;
 
 /**
- * The skittish bird. No longer a resident pet — birds are now <em>visitor
+ * The skittish bird. No longer a resident pet â€” birds are now <em>visitor
  * pets</em> spawned ad-hoc by {@link BirdVisitor} near an existing
  * resident pet, where they perch for a few seconds before flying off on
  * their own (or being scared away by a hunting resident via
@@ -59,7 +59,7 @@ public final class Bird extends Pet {
         int spriteIndex = 0;
         int baseDelay = walkStepDelayMs();
         for (int i = 1; i <= steps; i++) {
-            if (interrupted() || hovered || clicked) {
+            if (interrupted() || hovered || clicked.get()) {
                 break;
             }
             // Match base walkTo: ease-in/ease-out so take-offs and landings
@@ -125,7 +125,7 @@ public final class Bird extends Pet {
     }
 
     /**
-     * Birds don't have a separate "run" gait — they fly. Forwarding to
+     * Birds don't have a separate "run" gait â€” they fly. Forwarding to
      * {@link #walkAlongFloor} keeps hunting / fleeing on a bird looking
      * like aggressive flight rather than awkwardly switching to a non-
      * existent ground sprint.

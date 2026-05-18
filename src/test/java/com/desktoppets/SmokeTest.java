@@ -146,6 +146,44 @@ final class SmokeTest {
     }
 
     @Test
+    void floorYRespectsZOrderOcclusion() {
+        // A lower-Z window's top is hidden beneath a higher-Z window that
+        // covers the same column. The pet must not perch on the hidden top
+        // (that's the "duck floats over a covered window" bug); it should
+        // fall through to the next visible surface (desktop floor here).
+        // topmostWindowRects returns windows top-of-z first, so the
+        // covering window comes first in the list.
+        Rectangle covering   = new Rectangle(100, 400, 400, 500); // y \u2208 [400, 900]
+        Rectangle hiddenTop  = new Rectangle(100, 600, 400, 50);  // top inside covering
+        World w = new World(1920, 1080, null, null, List.of(covering, hiddenTop), 0);
+        // Pet feet at 1080 (desktop): covering's body covers down to 900,
+        // hiddenTop's top (600) is inside that band \u2014 ignored. Lands on
+        // desktop floor.
+        assertEquals(1080 - 64, w.floorY(64, 200, 64, 1080));
+        // Pet feet inside the covering window's body (e.g. 850): same
+        // outcome \u2014 hidden top is occluded.
+        assertEquals(1080 - 64, w.floorY(64, 200, 64, 850));
+    }
+
+    @Test
+    void floorYLandsOnVisibleSurfaceBelowCoveringWindow() {
+        // Two windows at the same column, top-Z covers rows [200, 500].
+        // A lower-Z window starts at y=700 (below the covering window's
+        // bottom 700? let's place at 750 to be clearly outside). The pet
+        // falling from above should land on the lower-Z window's top
+        // because it's visible (not occluded by the covering window).
+        Rectangle covering = new Rectangle(100, 200, 400, 300); // y \u2208 [200, 500]
+        Rectangle lower    = new Rectangle(100, 750, 400, 50);  // visible top at 750
+        World w = new World(1920, 1080, null, null, List.of(covering, lower), 0);
+        // Pet currently above both (feet=100): covering's top (200) is the
+        // topmost visible surface at-or-below.
+        assertEquals(200 - 64, w.floorY(64, 200, 64, 100));
+        // Pet currently below covering but above lower (feet=600):
+        // covering is hidden above the pet; lands on lower at y=750.
+        assertEquals(750 - 64, w.floorY(64, 200, 64, 600));
+    }
+
+    @Test
     void spriteMetricsDetectDuckyPadding() {
         // The duck idle sprite has ~16 rows of transparent padding under
         // its feet inside a 64×64 viewBox, so feetYRatio should be ≈ 0.75.

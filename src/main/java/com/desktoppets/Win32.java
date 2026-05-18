@@ -311,10 +311,16 @@ public final class Win32 {
                 }
             }
         } catch (Throwable t) {
-            // ignore — return whatever we have so far
+            if (SHELL_BAR_FAILURE_LOGGED.compareAndSet(false, true)) {
+                Log.warn("win32", "Shell_SecondaryTrayWnd enumeration failed: " + t);
+            }
+            // Return whatever we have so far so the primary taskbar is
+            // still honoured even if secondary lookup blew up.
         }
         return Collections.unmodifiableList(out);
     }
+
+    private static final AtomicBoolean SHELL_BAR_FAILURE_LOGGED = new AtomicBoolean(false);
 
     private static Rectangle findTaskbar(String className) {
         try (Arena a = Arena.ofConfined()) {

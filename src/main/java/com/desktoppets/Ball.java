@@ -78,6 +78,15 @@ public final class Ball {
      *  for collision purposes - a stationary ball under a bird shouldn't
      *  repeatedly trigger the knock-down on every tick. */
     private static final double KNOCK_MIN_SPEED = 60.0;
+    /** Vertical gravity added to {@link #vy} each physics tick (px/tick).
+     *  Matches the per-tick increment used by {@code Pet.fallToFloorIfAirborne}
+     *  / {@code Pet.fallOutAndExit} so a ball and a pet both falling off the
+     *  same closing window window look like they obey the same physics. */
+    private static final double GRAVITY_PER_TICK = 1.6;
+    /** Velocity preserved on bouncing off the floor after a fall. 0 = no
+     *  bounce (ball just lands and stops). Kept small so a ball that
+     *  rolled onto a closing window doesn't pogo when it re-settles. */
+    private static final double FLOOR_BOUNCE = 0.0;
 
     private final int sizePx;
     private final Rectangle monitor;
@@ -86,6 +95,13 @@ public final class Ball {
 
     private volatile double xLogical;
     private volatile int yLogical;
+    /** Sub-pixel accumulator for {@link #yLogical} so fractional gravity
+     *  steps don't get truncated away every tick. Only touched on the
+     *  tick thread. */
+    private double yLogicalD;
+    /** Vertical velocity (px/tick). Only touched on the tick thread —
+     *  external code can't apply vertical impulses to the ball. */
+    private double vy = 0;
     /** Guarded by {@link #vxLock} for read-modify-write atomicity between the
      *  tick thread's friction/collision math and external {@link #kick} calls
      *  from pet behavior threads. Still {@code volatile} so single reads
@@ -107,6 +123,7 @@ public final class Ball {
         this.monitor = monitor;
         this.xLogical = xLogical;
         this.yLogical = yFloor - sizePx;
+        this.yLogicalD = this.yLogical;
         this.sizePx = sizePx;
         this.screenW = screenW;
         this.screenH = screenH;
@@ -286,13 +303,37 @@ public final class Ball {
             }
         }
 
-        // --- Floor snap (same gravity rules as pets) ---
+        // --- Floor snap with gravity ---
+        // Resolve the target Y the same way pets do (highest visible
+        // surface at-or-below the ball's current feet), then either
+        // settle there or fall toward it under constant gravity when
+        // the previous surface vanished (e.g. a window the ball was
+        // rolling on just closed). Without the gravity branch the ball
+        // would teleport down the moment its support disappears, which
+        // reads as a glitch next to the now-falling pet beside it.
         World world = World.snapshot(screenW, screenH);
         int currentFeetY = yLogical + sizePx;
         int snappedTop = world.floorY(sizePx, (int) xLogical, sizePx, currentFeetY);
         int monBottomTop = monitor.y + monitor.height - sizePx;
-        int newY = Math.min(snappedTop, monBottomTop);
-        yLogical = newY;
+        int targetY = Math.min(snappedTop, monBottomTop);
+        if (yLogicalD < targetY) {
+            vy += GRAVITY_PER_TICK;
+            double newY = yLogicalD + vy;
+            if (newY >= targetY) {
+                newY = targetY;
+                vy = -vy * FLOOR_BOUNCE;
+                if (Math.abs(vy) < 0.5) vy = 0;
+            }
+            yLogicalD = newY;
+        } else {
+            // Already at-or-below the floor (normal rolling): snap up
+            // to the surface and zero vertical velocity. Snap is also
+            // what handles a NEW window opening below the ball, where
+            // floorY clamps us up onto its top.
+            yLogicalD = targetY;
+            vy = 0;
+        }
+        yLogical = (int) yLogicalD;
 
         // --- EDT position update ---
         if (frame != null) {

@@ -27,6 +27,6 @@ public final class Cat extends Pet {
         } else {
             sit();
         }
-        clicked = false;
+        clicked.set(false);
     }
 }

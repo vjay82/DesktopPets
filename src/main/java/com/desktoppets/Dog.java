@@ -28,6 +28,6 @@ public final class Dog extends Pet {
         } else {
             sit();
         }
-        clicked = false;
+        clicked.set(false);
     }
 }

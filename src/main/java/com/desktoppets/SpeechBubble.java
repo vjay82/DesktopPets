@@ -24,6 +24,8 @@ import javax.swing.JComponent;
  */
 final class SpeechBubble extends JComponent {
 
+    private static final long serialVersionUID = 1L;
+
     enum Tail { LEFT, RIGHT, CENTER }
 
     private String text = "";

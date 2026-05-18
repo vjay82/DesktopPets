@@ -1,25 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" shape-rendering="crispEdges">
-<!-- Yellow pixel-art "?" with darker outline. Distinct from sparkle (cross
-     burst) and note (music note) — used for HEAD_TILT / curious moments. -->
-<!-- Top arch -->
-<rect x="8"  y="3" width="8" height="2" fill="#a86810"/>
-<rect x="9"  y="4" width="6" height="1" fill="#ffd24a"/>
-<rect x="6"  y="5" width="3" height="3" fill="#a86810"/>
-<rect x="15" y="5" width="3" height="4" fill="#a86810"/>
-<rect x="7"  y="6" width="1" height="1" fill="#ffd24a"/>
-<rect x="16" y="6" width="1" height="2" fill="#ffd24a"/>
-<!-- Right shoulder turning inward toward the stem -->
-<rect x="14" y="8"  width="3" height="2" fill="#a86810"/>
-<rect x="14" y="9"  width="2" height="1" fill="#ffd24a"/>
-<rect x="12" y="9"  width="3" height="2" fill="#a86810"/>
-<rect x="12" y="10" width="2" height="1" fill="#ffd24a"/>
-<!-- Vertical stem -->
-<rect x="10" y="10" width="3" height="2" fill="#a86810"/>
-<rect x="10" y="11" width="2" height="1" fill="#ffd24a"/>
-<rect x="10" y="12" width="3" height="3" fill="#a86810"/>
-<rect x="10" y="12" width="2" height="3" fill="#ffd24a"/>
-<!-- Dot -->
-<rect x="10" y="17" width="3" height="3" fill="#a86810"/>
-<rect x="10" y="17" width="2" height="2" fill="#ffd24a"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <g transform="scale(0.125 0.125) translate(0.000000,192.000000) scale(1.000000,-1.000000)" fill="#a86810" stroke="none"><path d="M66 166 c-1 -1 -2 -3 -2 -6 0 -6 -2 -8 -8 -8 -7 0 -8 -2 -8 -12 0
+-11 1 -12 12 -12 11 0 12 1 12 12 0 12 -1 12 24 12 25 0 24 0 24 -12 l0 -8 -6
+-6 c-5 -6 -6 -6 -10 -6 -4 0 -5 0 -8 -4 -3 -4 -4 -4 -8 -4 -8 0 -8 -1 -8 -20
+0 -20 0 -20 12 -20 12 0 12 0 12 16 0 15 1 16 8 16 4 0 5 0 8 4 3 4 4 4 8 4 4
+0 5 0 10 6 l6 6 0 12 c0 15 -1 16 -8 16 -6 0 -8 2 -8 8 0 8 0 8 -32 8 -27 0
+-29 0 -30 -2z"/><path d="M82 54 c-3 -3 -3 -18 0 -20 3 -3 18 -3 20 0 3 3 3 18 0 20 -3 3 -18
+3 -20 0z"/></g>
+  <g transform="scale(0.125 0.125) translate(0.000000,192.000000) scale(1.000000,-1.000000)" fill="#ffd24a" stroke="none"><path d="M74 158 c-2 -2 -2 -2 0 -4 1 -2 3 -2 22 -2 19 0 21 0 23 2 1 2 1 2 0
+4 -2 2 -4 2 -23 2 -19 0 -21 0 -22 -2z"/><path d="M57 142 c-1 -2 -1 -2 1 -4 l2 -2 2 2 c2 2 2 2 1 4 -1 1 -3 2 -3 2 0
+0 -2 -1 -3 -2z"/><path d="M130 142 c-3 -3 -3 -10 0 -12 3 -3 6 0 6 6 0 7 -3 10 -6 6z"/><path d="M121 118 c-1 -2 -1 -2 1 -4 l2 -2 2 2 c2 2 2 2 1 4 -1 1 -3 2 -3 2 0
+0 -2 -1 -3 -2z"/><path d="M105 110 c-1 -2 -1 -2 1 -4 l2 -2 2 2 c2 2 2 2 1 4 -1 1 -3 2 -3 2 0
+0 -2 -1 -3 -2z"/><path d="M82 102 c-3 -3 -3 -26 0 -28 2 -3 10 -3 12 0 3 3 3 26 0 28 -2 3 -10
+3 -12 0z"/><path d="M82 54 c-3 -2 -3 -10 0 -12 2 -3 10 -3 12 0 3 2 3 10 0 12 -2 3 -10
+3 -12 0z"/></g>
 </svg>

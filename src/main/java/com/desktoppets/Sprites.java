@@ -108,6 +108,7 @@ final class Sprites {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private static ImageIcon render(String classpathPath, int w, int h) {
         Object source = SOURCE_CACHE.computeIfAbsent(classpathPath, Sprites::loadSource);
         if (source == MISSING) {
@@ -115,6 +116,7 @@ final class Sprites {
         }
         BufferedImage buffer = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = buffer.createGraphics();
+        boolean failed = false;
         try {
             if (source instanceof ImageIcon raster) {
                 // Raster icons (PNG) are existing high-res art; bilinear
@@ -143,10 +145,17 @@ final class Sprites {
                         RenderingHints.VALUE_ANTIALIAS_OFF);
                 svg.render(null, g, new ViewBox(0, 0, w, h));
             }
+        } catch (RuntimeException e) {
+            // JSVG can throw on malformed/edge-case docs. Log once per path
+            // and cache MISSING so subsequent ticks return cleanly instead
+            // of re-throwing on every frame.
+            failed = true;
+            SOURCE_CACHE.put(classpathPath, MISSING);
+            System.err.println("[sprites] render failed for " + classpathPath + ": " + e);
         } finally {
             g.dispose();
         }
-        return new ImageIcon(buffer);
+        return failed ? MISSING : new ImageIcon(buffer);
     }
 
     private static Object loadSource(String classpathPath) {

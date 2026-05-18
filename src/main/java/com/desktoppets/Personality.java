@@ -142,7 +142,15 @@ public final class Personality {
                 .bias("disappear-reappear", 0.0);
     }
 
-    /** Bird: skittish — sleeps often, flits between perches, startles easily, sings on perch. */
+    /**
+     * Bird: skittish, visitor-only. Bird never runs {@link BehaviorEngine}
+     * â€” {@link Pet#run()} routes visitors through {@code runVisitorLoop()}
+     * instead, so the activity-bias map is effectively unused at runtime.
+     * Kept minimal: only the decay rates (consulted by {@link NeedSet#decay})
+     * and the {@code climb-foreground} sanity entry asserted by {@code SmokeTest}
+     * remain. If Bird is ever promoted back to a resident species, restore
+     * the full bias table.
+     */
     public static Personality bird() {
         return new Personality("skittish")
                 .with(Need.AFFECTION, 0.02)
@@ -150,31 +158,7 @@ public final class Personality {
                 .with(Need.HUNGER,    0.05)
                 .with(Need.THIRST,    0.06)
                 .with(Need.ENERGY,    0.10)
-                .bias("seek-petting", 0.0)
-                // Bird never "climb"s, but the activity is gone; the 0.0 entry
-                // is asserted by SmokeTest as a sanity check on the bias map.
-                .bias("climb-foreground", 0.0)
-                .bias("sleep", 1.3)
-                .bias("disappear-reappear", 1.5)
-                // Bird-only activities.
-                .bias("flit", 1.0)
-                .bias("circle", 1.0)
-                .bias("startle-flush", 1.0)
-                .bias("perch-sing", 1.0)
-                // Activities Bird does NOT do.
-                .bias("stalk-pointer", 0.0)
-                .bias("high-perch-leap", 0.0)
-                .bias("grooming", 0.0)
-                .bias("knock-something-off", 0.0)
-                .bias("fetch-cursor", 0.0)
-                .bias("greet-foreground", 0.0)
-                .bias("dig", 0.0)
-                .bias("waddle-loop", 0.0)
-                .bias("crawl-sneak", 0.0)
-                .bias("crouch-pout", 0.0)
-                .bias("quack-combo", 0.0)
-                .bias("follow-cursor", 0.0)
-                .bias("zoomies", 0.0)
-                .bias("play-ball", 0.0);
+                // Sanity entry asserted by SmokeTest.personalityBiasDefaultsToOne.
+                .bias("climb-foreground", 0.0);
     }
 }

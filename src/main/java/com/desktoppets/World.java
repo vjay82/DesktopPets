@@ -38,17 +38,33 @@ public record World(int screenW, int screenH, Rectangle foreground, Rectangle ta
                 && cached.world.screenH == screenH) {
             return cached.world;
         }
-        Rectangle fg = Win32.foregroundWindowRect();
-        Rectangle tb = Win32.taskbarRect();
-        List<Rectangle> topmost = Win32.topmostWindowRects(screenW, screenH);
-        if (!Objects.equals(fg, lastObservedForeground)) {
-            lastObservedForeground = fg;
-            foregroundSeenSinceMs = now;
+        // Single-flight refresh: with several pet threads ticking 5Ã—/sec
+        // they often expire the TTL within microseconds of each other.
+        // Without this gate every miss-caller would invoke the full
+        // Win32 enumeration in parallel. Re-check the cache inside the
+        // lock so only the first thread does the work; the others see
+        // the freshly-published result on entry.
+        synchronized (CACHE) {
+            cached = CACHE.get();
+            now = System.currentTimeMillis();
+            if (cached != null
+                    && now - cached.takenAt < TTL_MS
+                    && cached.world.screenW == screenW
+                    && cached.world.screenH == screenH) {
+                return cached.world;
+            }
+            Rectangle fg = Win32.foregroundWindowRect();
+            Rectangle tb = Win32.taskbarRect();
+            List<Rectangle> topmost = Win32.topmostWindowRects(screenW, screenH);
+            if (!Objects.equals(fg, lastObservedForeground)) {
+                lastObservedForeground = fg;
+                foregroundSeenSinceMs = now;
+            }
+            long stableMs = fg == null ? 0L : Math.max(0L, now - foregroundSeenSinceMs);
+            World fresh = new World(screenW, screenH, fg, tb, topmost, stableMs);
+            CACHE.set(new Cached(fresh, now));
+            return fresh;
         }
-        long stableMs = fg == null ? 0L : Math.max(0L, now - foregroundSeenSinceMs);
-        World fresh = new World(screenW, screenH, fg, tb, topmost, stableMs);
-        CACHE.set(new Cached(fresh, now));
-        return fresh;
     }
 
     /** Y coordinate the pet should sit at to "stand on" the taskbar, or {@code defaultY}. */
@@ -200,43 +216,76 @@ public record World(int screenW, int screenH, Rectangle foreground, Rectangle ta
 
     /**
      * Gravity-based floor: pick the Y for a pet whose feet are currently
-     * at {@code currentFeetY} so it stays on the highest visible surface
-     * that is <b>at-or-below</b> its current feet. This deliberately
-     * prevents pets from teleporting upward when a new window opens
-     * overhead \u2014 they only ever <em>fall</em> downward.
+     * at {@code currentFeetY} so it lands on the highest <em>visible</em>
+     * surface at-or-below its current feet at column {@code petX}. The
+     * "visible" qualifier matters: another (higher-Z) window can cover
+     * the top edge of a lower-Z window at this column, in which case the
+     * lower-Z top is not actually visible to the user and the pet
+     * standing on it would float over the covering window. So the search
+     * walks {@link #topmostWindows} <b>in z-order (top-first; see
+     * {@link Win32#topmostWindowRects})</b> and respects occlusion:
      *
-     * <p>Considered surfaces: tops of windows in {@link #topmostWindows}
-     * whose horizontal span overlaps {@code [petX, petX+petWidth]} and
-     * whose top {@code r.y} is {@code >= currentFeetY - tolerance}. Plus
-     * the desktop bottom ({@code screenH}) as the always-present fallback.
+     * <ul>
+     *   <li>Windows with no horizontal overlap, or whose top is off-screen
+     *       above ({@code y < 0}), are skipped.</li>
+     *   <li>A higher-Z window whose body extends past the current
+     *       "search floor" advances that floor to its bottom — any
+     *       lower-Z window whose top falls inside this band is hidden at
+     *       column {@code petX} and ignored.</li>
+     *   <li>The first not-occluded window whose top is at-or-below the
+     *       (advanced) search floor is the landing surface; gravity
+     *       returns its top minus {@code petHeight}.</li>
+     * </ul>
      *
-     * <p>Result: when no window qualifies (pet's surface vanished, or pet
-     * is currently above every visible window in this column), the pet
-     * drops to the desktop floor. Callers that need a per-monitor work-area
-     * cap (e.g. {@code Pet.floorYAt}) apply it on top.
+     * <p>If no window qualifies (pet's surface vanished, every candidate
+     * is hidden by something higher-Z, or pet is currently above every
+     * visible top), the pet falls to the desktop floor ({@code screenH}).
+     * Callers that need a per-monitor work-area cap (e.g.
+     * {@link Pet#floorYAt}) apply it on top.
+     *
+     * <p>The gravity rule "pet only falls" survives this rewrite: any
+     * window whose top is above {@code currentFeetY - tolerance} cannot
+     * be a landing surface; it only affects {@code searchFloor} (so the
+     * pet doesn't accidentally land on a lower-Z window that's hidden
+     * underneath the high one).
      */
     public int floorY(int petHeight, int petX, int petWidth, int currentFeetY) {
-        int bestTop = Math.max(0, screenH); // desktop floor as ultimate fallback
+        // Lower bound (inclusive) for any landing surface's top, in Y
+        // coordinates (so "advance downward" = increase). Starts at the
+        // pet's feet (minus tolerance) so gravity can't make the pet rise;
+        // grows as higher-Z windows are found to cover the region beneath.
+        int searchFloor = currentFeetY - FLOOR_TOLERANCE_PX;
         for (Rectangle r : topmostWindows) {
             if (r.x + r.width <= petX || r.x >= petX + petWidth) {
-                continue; // no horizontal overlap
+                continue; // no horizontal overlap at this column
             }
             int topY = r.y;
+            int botY = r.y + r.height;
             if (topY < 0) {
-                // Window's top is off-screen above \u2014 unreachable perch.
+                // Top is off-screen above. The window's body might still
+                // cover the area beneath the pet — advance searchFloor
+                // so lower-Z windows under it are correctly hidden.
+                if (botY > searchFloor) {
+                    searchFloor = botY;
+                }
                 continue;
             }
-            if (topY < currentFeetY - FLOOR_TOLERANCE_PX) {
-                // Surface is ABOVE the pet \u2014 gravity ignores it. This is
-                // what stops pets from jumping up when a window opens
-                // higher than where they're standing.
-                continue;
+            if (topY >= searchFloor) {
+                // Top is visible at column petX (no higher-Z window
+                // covers it) and at-or-below the pet's feet — land here.
+                return topY - petHeight;
             }
-            if (topY < bestTop) {
-                bestTop = topY;
+            // topY < searchFloor: this window's top is hidden (either
+            // above the pet's original feet, or beneath a previously-seen
+            // higher-Z window). If its body extends past the current
+            // searchFloor it still occludes anything beneath it at this
+            // column — advance the floor.
+            if (botY > searchFloor) {
+                searchFloor = botY;
             }
         }
-        return bestTop - petHeight;
+        // Desktop floor as ultimate fallback.
+        return Math.max(0, screenH) - petHeight;
     }
 
     private record Cached(World world, long takenAt) {

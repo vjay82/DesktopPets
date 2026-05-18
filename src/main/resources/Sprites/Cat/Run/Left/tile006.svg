@@ -1,49 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
-<rect x="11" y="20" width="2" height="1" fill="#2f2f2e"/>
-<rect x="15" y="20" width="2" height="1" fill="#2f2f2e"/>
-<rect x="18" y="20" width="2" height="1" fill="#2f2f2e"/>
-<rect x="10" y="21" width="5" height="1" fill="#2f2f2e"/>
-<rect x="15" y="21" width="1" height="1" fill="#b5b5b5"/>
-<rect x="16" y="21" width="1" height="1" fill="#2f2f2e"/>
-<rect x="18" y="21" width="1" height="1" fill="#2f2f2e"/>
-<rect x="19" y="21" width="1" height="1" fill="#e0e0e0"/>
-<rect x="20" y="21" width="1" height="1" fill="#2f2f2e"/>
-<rect x="10" y="22" width="1" height="1" fill="#2f2f2e"/>
-<rect x="11" y="22" width="3" height="1" fill="#e0e0e0"/>
-<rect x="14" y="22" width="1" height="1" fill="#b5b5b5"/>
-<rect x="15" y="22" width="1" height="1" fill="#2f2f2e"/>
-<rect x="18" y="22" width="1" height="1" fill="#2f2f2e"/>
-<rect x="19" y="22" width="1" height="1" fill="#e0e0e0"/>
-<rect x="20" y="22" width="1" height="1" fill="#2f2f2e"/>
-<rect x="9" y="23" width="1" height="1" fill="#2f2f2e"/>
-<rect x="10" y="23" width="2" height="1" fill="#b5b5b5"/>
-<rect x="12" y="23" width="1" height="1" fill="#2f2f2e"/>
-<rect x="13" y="23" width="1" height="1" fill="#e0e0e0"/>
-<rect x="14" y="23" width="1" height="1" fill="#b5b5b5"/>
-<rect x="15" y="23" width="1" height="1" fill="#2f2f2e"/>
-<rect x="19" y="23" width="1" height="1" fill="#2f2f2e"/>
-<rect x="20" y="23" width="1" height="1" fill="#e0e0e0"/>
-<rect x="21" y="23" width="1" height="1" fill="#2f2f2e"/>
-<rect x="9" y="24" width="1" height="1" fill="#2f2f2e"/>
-<rect x="10" y="24" width="4" height="1" fill="#e0e0e0"/>
-<rect x="14" y="24" width="1" height="1" fill="#b5b5b5"/>
-<rect x="15" y="24" width="5" height="1" fill="#2f2f2e"/>
-<rect x="20" y="24" width="1" height="1" fill="#e0e0e0"/>
-<rect x="21" y="24" width="1" height="1" fill="#2f2f2e"/>
-<rect x="9" y="25" width="1" height="1" fill="#2f2f2e"/>
-<rect x="10" y="25" width="5" height="1" fill="#b5b5b5"/>
-<rect x="15" y="25" width="5" height="1" fill="#e0e0e0"/>
-<rect x="20" y="25" width="1" height="1" fill="#2f2f2e"/>
-<rect x="10" y="26" width="2" height="1" fill="#2f2f2e"/>
-<rect x="12" y="26" width="4" height="1" fill="#e0e0e0"/>
-<rect x="16" y="26" width="2" height="1" fill="#2f2f2e"/>
-<rect x="18" y="26" width="2" height="1" fill="#e0e0e0"/>
-<rect x="20" y="26" width="1" height="1" fill="#2f2f2e"/>
-<rect x="10" y="27" width="3" height="1" fill="#2f2f2e"/>
-<rect x="13" y="27" width="1" height="1" fill="#e0e0e0"/>
-<rect x="14" y="27" width="2" height="1" fill="#2f2f2e"/>
-<rect x="16" y="27" width="4" height="1" fill="#e0e0e0"/>
-<rect x="20" y="27" width="1" height="1" fill="#2f2f2e"/>
-<rect x="10" y="28" width="10" height="1" fill="#2f2f2e"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <g transform="scale(0.125 0.125) translate(0.000000,256.000000) scale(1.000000,-1.000000)" fill="#2f2f2e" stroke="none"><path d="M86 90 c-6 -5 -6 -6 -6 -10 0 -4 0 -5 -4 -8 l-4 -3 0 -9 0 -9 4 -3 4
+-3 0 -9 c0 -13 -3 -12 40 -12 l36 0 6 6 6 6 0 8 0 9 4 3 c4 3 4 4 4 8 0 4 0 5
+-4 8 -4 3 -4 4 -4 8 0 4 0 5 -6 10 -5 6 -6 6 -10 6 -7 0 -8 -2 -8 -12 l0 -8 4
+-4 c4 -4 4 -4 3 -6 -2 -2 -3 -2 -11 -2 -10 0 -12 1 -12 8 0 4 0 5 4 8 4 3 4 4
+4 8 0 6 -2 8 -8 8 -4 0 -5 0 -8 -4 -3 -4 -4 -4 -8 -4 -4 0 -5 0 -8 4 -3 4 -4
+4 -8 4 -4 0 -5 -1 -10 -6z"/></g>
+  <g transform="scale(0.125 0.125) translate(0.000000,256.000000) scale(1.000000,-1.000000)" fill="#e0e0e0" stroke="none"><path d="M122 86 c-1 -1 -2 -3 -2 -4 0 -2 0 -2 -14 -2 l-14 0 -6 -6 -6 -6 0
+-8 c0 -10 1 -12 8 -12 4 0 5 0 12 -8 l8 -8 4 4 c3 4 4 4 10 4 6 0 6 0 6 -2 0
+-5 3 -6 16 -6 16 0 16 0 16 14 0 10 0 10 2 10 4 0 6 3 6 8 0 5 -2 8 -6 8 -2 0
+-2 0 -2 6 0 8 -3 12 -6 9 -5 -5 -2 -15 4 -15 2 0 2 0 2 -8 l0 -8 -18 0 c-23 0
+-22 -1 -22 14 0 10 0 10 2 10 2 0 4 1 5 2 1 2 1 2 0 4 -3 2 -3 2 -5 0z m-19
+-16 c1 -2 1 -2 -1 -4 l-2 -2 -2 2 c-2 2 -2 2 -1 4 1 1 3 2 3 2 0 0 2 -1 3 -2z
+m40 -24 c3 -3 -1 -6 -9 -6 -6 0 -6 0 -6 2 0 6 10 9 15 4z"/></g>
+  <g transform="scale(0.125 0.125) translate(0.000000,256.000000) scale(1.000000,-1.000000)" fill="#b5b5b5" stroke="none"><path d="M122 86 c-1 -1 -2 -3 -2 -4 0 -1 -1 -2 -2 -2 -5 0 -6 -3 -6 -12 0
+-12 0 -12 -16 -12 -11 0 -13 0 -14 -2 -2 -2 -2 -2 0 -4 1 -2 3 -2 18 -2 21 0
+20 -1 20 18 l0 14 2 0 c2 0 4 1 5 2 1 2 1 2 0 4 -3 2 -3 2 -5 0z"/><path d="M82 70 c-3 -3 0 -6 6 -6 6 0 9 3 7 6 -2 1 -4 2 -7 2 -3 0 -5 -1 -6
+-2z"/></g>
 </svg>
