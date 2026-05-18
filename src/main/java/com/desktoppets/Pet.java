@@ -256,57 +256,15 @@ public abstract class Pet implements Runnable {
             frame.add(propLabel);
             frame.add(petLabel);
 
-            Point saved = Config.readPosition(name);
-            if (saved != null && !isOnVisibleMonitor(saved)) {
-                Log.info("pet:" + name,
-                        "saved position " + saved.x + "," + saved.y
-                        + " is not on any visible monitor, falling back to default"
-                        + " (config preserved until pet moves)");
-                discardedSavedPos = saved;
-                saved = null;
-            }
-            if (saved != null && savedOverlapsTaskbar(saved)) {
-                Log.info("pet:" + name,
-                        "saved position " + saved.x + "," + saved.y
-                        + " overlaps the taskbar work-area, falling back to default"
-                        + " (config preserved until pet moves)");
-                discardedSavedPos = saved;
-                saved = null;
-            }
+            // Pet positions are intentionally not persisted - only the
+            // settings dialog values (pets list, size, activity) live in
+            // config.txt. Every spawn picks a random visible monitor and
+            // walks the pet in from off-screen.
             Rectangle primary = primaryMonitorBounds();
             Point clamped;
             Point firstSetLocation;
             Rectangle initialBounds; // exact bounds for the first frame.setBounds
-            if (saved != null) {
-                clamped = clampToScreen(saved);
-                firstSetLocation = clamped;
-                pendingEntryTargetX = null;
-                // Prefer the explicitly saved monitor when it still exists;
-                // otherwise fall back to whichever monitor contains the
-                // clamped position. Persisting the monitor disambiguates
-                // cases where two monitors overlap in coordinate space or
-                // where the same logical X belongs to a different physical
-                // device after a hotplug.
-                Rectangle savedMon = Config.readMonitor(name);
-                Rectangle boundMon = null;
-                if (savedMon != null) {
-                    try {
-                        for (GraphicsDevice d : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
-                            if (d.getDefaultConfiguration().getBounds().equals(savedMon)) {
-                                boundMon = savedMon;
-                                break;
-                            }
-                        }
-                    } catch (Throwable t) {
-                        // ignore - fall through to containment lookup
-                    }
-                }
-                if (boundMon == null) {
-                    boundMon = monitorContaining(clamped, primary);
-                }
-                activeMonitor = boundMon;
-                initialBounds = new Rectangle(clamped.x, clamped.y, petSize, petSize);
-            } else {
+            {
                 // Pick a random visible monitor and a random side. The pet's
                 // intended logical position starts FULLY OUTSIDE the chosen
                 // monitor's entry edge so the first behaviour tick's
@@ -332,7 +290,6 @@ public abstract class Pet implements Runnable {
                         + "@(" + plan.monitor.x + "," + plan.monitor.y + ")"
                         + " \u2192 target " + plan.target.x + "," + plan.target.y);
             }
-            initialSpawn = clamped;
             // Seed the intended logical position so logicalLocation() is
             // correct from the very first behaviour tick (it would
             // otherwise return (0,0) until the first moveFrameTo).
@@ -357,7 +314,7 @@ public abstract class Pet implements Runnable {
                     "spawned size=" + petSize
                     + " at " + clamped.x + "," + clamped.y
                     + " (screen " + (int) screen.getWidth() + "x" + (int) screen.getHeight()
-                    + ", saved=" + (saved != null) + ")"
+                    + ")"
                     + " visible=" + frame.isVisible()
                     + " onTop=" + frame.isAlwaysOnTop()
                     + " hwnd=0x" + Long.toHexString(hwnd));
@@ -415,47 +372,6 @@ public abstract class Pet implements Runnable {
             // fall through
         }
         return new Rectangle(0, 0, (int) screen.getWidth(), (int) screen.getHeight());
-    }
-
-    /**
-     * True if at least the top-left corner of the proposed pet frame lies
-     * inside some currently-attached {@link GraphicsDevice}. We use this to
-     * detect saved positions that point at a monitor which is now off or
-     * disconnected — in that case the pet would spawn invisibly on a virtual
-     * desktop the user can't see.
-     */
-    private boolean isOnVisibleMonitor(Point p) {
-        try {
-            for (GraphicsDevice d : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
-                if (d.getDefaultConfiguration().getBounds().contains(p)) {
-                    return true;
-                }
-            }
-        } catch (Throwable t) {
-            // If GraphicsEnvironment throws, assume the saved position is fine
-            // and let clampToScreen handle it.
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * True if the saved {@code (x, y)} top-left position would place the
-     * pet's feet inside (or below) the desktop work-area bottom at column
-     * {@code x} \u2014 i.e., partially or fully behind the taskbar.
-     *
-     * <p>Old config files from before the DPI-aware work-area fix can
-     * contain such positions; we treat them as invalid so the pet re-runs
-     * its random entry walk instead of silently materialising inside the
-     * taskbar. A small {@code 2 px} slack lets pets resting exactly on the
-     * work-area floor still count as valid.
-     */
-    private boolean savedOverlapsTaskbar(Point p) {
-        int feetH = (petLabel != null && petLabel.getHeight() > 0)
-                ? petLabel.getHeight()
-                : petSize;
-        int feetY = p.y + feetH;
-        return feetY > monitorBottomAtColumn(p.x) + 2;
     }
 
     /** Bounds of the primary {@link GraphicsDevice}, or the union as fallback. */
@@ -786,75 +702,11 @@ public abstract class Pet implements Runnable {
                 petSize - propH - offY);
     }
 
-    /**
-     * Persist the current location for next launch. Throttled in two ways
-     * to avoid hammering {@code config.txt} (3 pets × 1 Hz from the engine
-     * loop = 3 disk writes / sec otherwise):
-     * <ul>
-     *   <li>movement gate: skip if neither X nor Y has moved by &ge;
-     *       {@value #PERSIST_DELTA_PX} px since the last persist;</li>
-     *   <li>time gate: still force a flush every {@value #PERSIST_FORCE_MS}
-     *       ms even if nothing moved, so a crash never loses more than
-     *       a few seconds of position drift.</li>
-     * </ul>
-     */
-    public final void persistPosition() {
-        if (frame == null) {
-            return;
-        }
-        // Don't persist intermediate frames of the spawn entry walk —
-        // otherwise a mid-walk position overwrites a saved off-monitor
-        // position before the pet even arrives at its slot.
-        if (entryWalkInProgress || pendingEntryTargetX != null) {
-            return;
-        }
-        Point p = logicalLocation();
-        // If we discarded a saved position because its monitor was off, keep
-        // the on-disk value intact until the pet has actually moved away from
-        // the fallback spawn point. That way temporarily unplugging a monitor
-        // doesn't erase the user's preferred position on it.
-        if (discardedSavedPos != null && initialSpawn != null
-                && Math.abs(p.x - initialSpawn.x) < PERSIST_DELTA_PX
-                && Math.abs(p.y - initialSpawn.y) < PERSIST_DELTA_PX) {
-            return;
-        }
-        // Pet has moved (or never had a discarded position): clear the marker
-        // so we resume normal persistence behaviour from now on.
-        discardedSavedPos = null;
-        long now = System.currentTimeMillis();
-        Point last = lastPersistedAt;
-        if (last != null
-                && now - lastPersistAtMs < PERSIST_FORCE_MS
-                && Math.abs(p.x - last.x) < PERSIST_DELTA_PX
-                && Math.abs(p.y - last.y) < PERSIST_DELTA_PX) {
-            return;
-        }
-        Config.writePosition(name, p);
-        // Persist the bound monitor too (may be null on the rare path where
-        // a pet has no activeMonitor yet); a null write clears any stale
-        // entry from a previous session.
-        Config.writeMonitor(name, activeMonitor);
-        lastPersistedAt = p;
-        lastPersistAtMs = now;
-    }
-
-    private static final int  PERSIST_DELTA_PX = 8;
-    private static final long PERSIST_FORCE_MS = 5_000L;
-    private volatile Point lastPersistedAt;
-    private volatile long  lastPersistAtMs = 0L;
-    /** Saved position discarded at spawn because its monitor was off; while
-     *  this is non-null and the pet hasn't moved from the fallback spawn, we
-     *  suppress persistence so the user's original position survives. */
-    private volatile Point discardedSavedPos;
-    /** Fallback spawn point chosen at init when {@link #discardedSavedPos} was set. */
-    private volatile Point initialSpawn;
-    /** When non-null, the pet was spawned just off the right edge of the
-     *  primary monitor and should walk leftward to this X on the first
-     *  behaviour tick. Cleared after the entry walk runs. */
+    /** When non-null, the pet was spawned just off the edge of a monitor
+     *  and should walk inward to this X on the first behaviour tick.
+     *  Cleared after the entry walk runs. */
     private volatile Integer pendingEntryTargetX;
-    /** True while {@link #runPendingEntryWalk} is executing. Persistence is
-     *  suppressed during this window so the intermediate walk positions don't
-     *  overwrite the user's saved (off-monitor) position. */
+    /** True while {@link #runPendingEntryWalk} is executing. */
     private volatile boolean entryWalkInProgress;
     /** Monitor the pet is currently bound to. When non-null, {@link
      *  #moveFrameTo} clips the frame to these bounds (the JFrame never

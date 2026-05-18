@@ -1,7 +1,5 @@
 package com.desktoppets;
 
-import java.awt.Point;
-import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,12 +20,16 @@ import java.util.concurrent.locks.ReentrantLock;
  * Reads and writes {@code config.txt}. Supports both formats:
  * <ul>
  *   <li><b>New:</b> key=value lines: {@code pets=ducky,cat,bird},
- *       {@code pet.size=64}, {@code pet.activity=1.0}, plus optional
- *       {@code pos.<name>=x,y} lines for remembered positions.</li>
+ *       {@code pet.size=64}, {@code pet.activity=1.0}.</li>
  *   <li><b>Legacy:</b> one pet name per line after an
  *       {@code Enter pets after this line:} marker.</li>
  * </ul>
  * Writes are atomic ({@code Files.move(..., ATOMIC_MOVE)}).
+ *
+ * <p>Only settings-dialog values are persisted (pets list, size, activity).
+ * Per-pet positions and bound monitors are intentionally NOT persisted:
+ * every launch spawns each pet by walking it in from off-screen on a
+ * random visible monitor.
  */
 public final class Config {
 
@@ -35,8 +37,6 @@ public final class Config {
     private static final String PETS_KEY     = "pets";
     private static final String SIZE_KEY     = "pet.size";
     private static final String ACTIVITY_KEY = "pet.activity";
-    private static final String POS_PREFIX   = "pos.";
-    private static final String MON_PREFIX   = "mon.";
     private static final String MARKER       = "Enter pets after this line:";
 
     public static final int    DEFAULT_SIZE     = 64;
@@ -121,90 +121,6 @@ public final class Config {
         }
     }
 
-    public static Point readPosition(String petName) {
-        Properties p = readProperties();
-        String v = p.getProperty(POS_PREFIX + petName.toLowerCase(Locale.ROOT));
-        if (v == null) {
-            return null;
-        }
-        String[] parts = v.split(",");
-        if (parts.length != 2) {
-            return null;
-        }
-        try {
-            return new Point(Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim()));
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    public static void writePosition(String petName, Point pos) {
-        LOCK.lock();
-        try {
-            Properties p = readProperties();
-            String key = POS_PREFIX + petName.toLowerCase(Locale.ROOT);
-            String value = pos.x + "," + pos.y;
-            if (value.equals(p.getProperty(key))) {
-                return; // no-op
-            }
-            p.setProperty(key, value);
-            writeAtomically(p);
-        } finally {
-            LOCK.unlock();
-        }
-    }
-
-    /**
-     * Reads the remembered monitor bounds for {@code petName}, or null if
-     * absent or malformed. Bound monitors are persisted alongside
-     * positions so that on restart we can re-bind the pet to the SAME
-     * physical monitor it was on — important when monitors have different
-     * DPI or when one is offset from origin (a saved position alone is
-     * ambiguous if two monitors overlap in coordinate space).
-     */
-    public static Rectangle readMonitor(String petName) {
-        Properties p = readProperties();
-        String v = p.getProperty(MON_PREFIX + petName.toLowerCase(Locale.ROOT));
-        if (v == null) {
-            return null;
-        }
-        String[] parts = v.split(",");
-        if (parts.length != 4) {
-            return null;
-        }
-        try {
-            return new Rectangle(
-                    Integer.parseInt(parts[0].trim()),
-                    Integer.parseInt(parts[1].trim()),
-                    Integer.parseInt(parts[2].trim()),
-                    Integer.parseInt(parts[3].trim()));
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    public static void writeMonitor(String petName, Rectangle mon) {
-        LOCK.lock();
-        try {
-            Properties p = readProperties();
-            String key = MON_PREFIX + petName.toLowerCase(Locale.ROOT);
-            if (mon == null) {
-                if (p.remove(key) == null) {
-                    return;
-                }
-            } else {
-                String value = mon.x + "," + mon.y + "," + mon.width + "," + mon.height;
-                if (value.equals(p.getProperty(key))) {
-                    return;
-                }
-                p.setProperty(key, value);
-            }
-            writeAtomically(p);
-        } finally {
-            LOCK.unlock();
-        }
-    }
-
     // ---------------- internals ----------------
 
     private static Properties readProperties() {
@@ -224,7 +140,7 @@ public final class Config {
                               line.substring(eq + 1).trim());
             }
         } catch (IOException e) {
-            // ignore — treat as empty
+            // ignore - treat as empty
         }
         return p;
     }
@@ -255,22 +171,19 @@ public final class Config {
     }
 
     private static void writeAtomically(Properties props) {
-        // Stable, human-readable ordering: pets, size, activity, positions, then anything else.
+        // Stable, human-readable ordering: pets, size, activity, then anything else.
         Map<String, String> sorted = new LinkedHashMap<>();
         for (String k : new String[] {PETS_KEY, SIZE_KEY, ACTIVITY_KEY}) {
             if (props.containsKey(k)) {
                 sorted.put(k, props.getProperty(k));
             }
         }
-        props.stringPropertyNames().stream()
-                .filter(k -> k.startsWith(POS_PREFIX))
-                .sorted()
-                .forEach(k -> sorted.put(k, props.getProperty(k)));
-        props.stringPropertyNames().stream()
-                .filter(k -> k.startsWith(MON_PREFIX))
-                .sorted()
-                .forEach(k -> sorted.put(k, props.getProperty(k)));
+        // Drop legacy per-pet position/monitor lines if they linger in
+        // existing config.txt files - they are no longer maintained.
         for (String k : props.stringPropertyNames()) {
+            if (k.startsWith("pos.") || k.startsWith("mon.")) {
+                continue;
+            }
             sorted.putIfAbsent(k, props.getProperty(k));
         }
 

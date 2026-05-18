@@ -48,7 +48,6 @@ public final class BehaviorEngine {
     public void run() {
         Log.info("engine:" + pet.name, "started");
         long previous = System.nanoTime();
-        long lastSavedAt = 0;
         while (!Thread.currentThread().isInterrupted()) {
             long now = System.nanoTime();
             double seconds = (now - previous) / 1_000_000_000.0;
@@ -85,13 +84,6 @@ public final class BehaviorEngine {
                 noteCompleted(chosen);
             } else {
                 pet.idle();
-            }
-
-            // Persist position roughly once per real-time second so a crash
-            // doesn't lose where the pet ended up.
-            if (now - lastSavedAt > 1_000_000_000L) {
-                pet.persistPosition();
-                lastSavedAt = now;
             }
         }
         Log.info("engine:" + pet.name, "stopped");
