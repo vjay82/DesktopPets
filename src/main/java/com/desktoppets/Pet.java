@@ -961,6 +961,12 @@ public abstract class Pet implements Runnable {
             frame.setBackground(new Color(0, 0, 0, 0));
             frame.setAlwaysOnTop(true);
             frame.setType(JFrame.Type.UTILITY); // no taskbar entry per pet
+            // Never steal focus from the user's active app when the pet
+            // window is created or shown. Without these, setVisible(true)
+            // raises the JFrame and pulls keyboard focus away from
+            // whatever the user was typing in.
+            frame.setFocusableWindowState(false);
+            frame.setAutoRequestFocus(false);
             if (favIcon != null) {
                 frame.setIconImage(favIcon.getImage());
             }
