@@ -803,25 +803,47 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Long-fall recovery: continue gravity past the bottom of {@code mon}
-     * so the pet visually plummets off-screen, pause briefly while
-     * invisible, then re-enter on a (mostly the same, occasionally
-     * random) monitor via {@link #pickReentryPlan}. The
-     * {@link MonitorClipper} inside {@link #moveFrameTo} hides the frame
-     * automatically once it's fully past the monitor edge.
+     * Long-fall recovery: get the pet off-screen, pause out of sight,
+     * then re-enter via {@link #pickReentryPlan}. The way we leave
+     * depends on where the pet was perched when its surface vanished:
+     *
+     * <ul>
+     *   <li><b>Near a monitor side edge</b> (within
+     *       {@value #EDGE_RUN_OFF_DIST_PX} px of the nearer left/right
+     *       edge) \u2014 run off that edge horizontally via
+     *       {@link #runAlongFloor}. The {@link MonitorClipper} inside
+     *       {@link #moveFrameTo} narrows the JFrame at the boundary
+     *       and hides it once the visible width hits 0.</li>
+     *   <li><b>Far from any side</b> \u2014 jump off the closer side
+     *       in a parabolic arc that carries the pet up + sideways past
+     *       the monitor edge, then let gravity drop it past the bottom
+     *       of the monitor. Reads as "leapt off the perch" rather than
+     *       a controlled exit.</li>
+     * </ul>
+     *
+     * <p>After the pet is off-screen we pause 1.5\u20134 s, then re-enter
+     * via the same plan {@link Activities#DISAPPEAR_REAPPEAR} uses.
      */
     private void knockedOffPerchAndRespawn(World world, Rectangle mon) {
         Point start = logicalLocation();
-        int x = start.x;
-        double y = start.y;
-        double vy = 0.0;
-        double gravity = 1.6;
-        int offTarget = mon.y + mon.height + petSize;
-        while (y < offTarget && !Thread.currentThread().isInterrupted()) {
-            vy += gravity;
-            y += vy;
-            moveFrameTo(x, (int) y);
-            sleepInterruptible(16L);
+        int petW = effectiveWidth();
+        int midX = start.x + petW / 2;
+        int leftDist  = midX - mon.x;
+        int rightDist = (mon.x + mon.width) - midX;
+        boolean exitRight = rightDist <= leftDist;
+        int distToEdge = exitRight ? rightDist : leftDist;
+
+        if (distToEdge <= EDGE_RUN_OFF_DIST_PX) {
+            // Close to a side: just bolt off it horizontally. runAlongFloor
+            // resamples the floor each step, so the pet still tracks any
+            // intermediate windows on the way out.
+            int exitX = exitRight ? (mon.x + mon.width) : (mon.x - petW);
+            runAlongFloor(world, exitX);
+        } else {
+            // Mid-monitor: leap off the nearer side. Parabolic arc to a
+            // point just past the side edge at lift apex, then gravity
+            // takes over and drops the pet past mon.bottom.
+            jumpOffEdge(mon, exitRight);
         }
         if (Thread.currentThread().isInterrupted()) {
             return;
@@ -838,6 +860,89 @@ public abstract class Pet implements Runnable {
         moveFrameTo(plan.entryStart.x, plan.entryStart.y);
         refreshCurrentSprite();
         walkAlongFloor(world, plan.target.x);
+    }
+
+    /** Pet is "near a side" if it's within this many logical px of either
+     *  the left or the right edge of its current monitor. Below the
+     *  threshold the long-fall recovery exits with a horizontal run;
+     *  above it, the pet leaps off in a parabolic arc. */
+    private static final int EDGE_RUN_OFF_DIST_PX = 220;
+
+    /**
+     * Parabolic leap toward the nearer side of {@code mon}, continuing
+     * with gravity past the bottom of the monitor so the pet exits the
+     * screen cleanly. Horizontal motion lerps from the current X to a
+     * point a comfortable distance past the chosen side edge, then
+     * stops; vertical motion is a half-sine lift (apex partway through
+     * the arc) followed by free-fall acceleration once the apex is
+     * passed. Sprite stays on the run frames facing the exit direction.
+     */
+    private void jumpOffEdge(Rectangle mon, boolean exitRight) {
+        Point start = logicalLocation();
+        int petW = effectiveWidth();
+        int petH = effectiveHeight();
+        int startX = start.x;
+        int startY = start.y;
+        int exitX = exitRight
+                ? (mon.x + mon.width  + petW)   // a full pet-width past the right edge
+                : (mon.x - petW - petW);        // a full pet-width past the left edge
+        int arcSpan = Math.abs(exitX - startX);
+        // Apex lift: a fraction of the pet's height, capped so very tall
+        // pets don't launch ridiculously high.
+        int lift = Math.min(64, Math.max(24, petH / 2));
+        // Run animation, facing the exit direction, for the duration of
+        // the arc; falls back to walk frames if the species ships no
+        // dedicated run sheet.
+        java.util.List<String> frames = exitRight ? runRightFrames() : runLeftFrames();
+        if (frames == null || frames.isEmpty()) {
+            frames = exitRight ? walkRightFrames() : walkLeftFrames();
+        }
+        int stepDelay = Math.max(6, runStepDelayMs());
+        int spriteIndex = 0;
+        // Drive the arc by pixel-steps along X so the speed is consistent
+        // regardless of how far the leap is.
+        int stepPx = Math.max(2, Dpi.scale(4));
+        int signed = exitRight ? stepPx : -stepPx;
+        int x = startX;
+        double y = startY;
+        double vy = -computeInitialVy(lift); // negative = upward
+        double gravity = 1.6; // px per 16 ms step \u2014 matches fallOutAndExit
+        int stepsTaken = 0;
+        int offBottom = mon.y + mon.height + petH;
+        while (!Thread.currentThread().isInterrupted()) {
+            if ((stepsTaken % 4) == 0 && !frames.isEmpty()) {
+                Sprites.apply(petLabel, frames.get(spriteIndex % frames.size()));
+                spriteIndex++;
+            }
+            x += signed;
+            vy += gravity;
+            y  += vy;
+            moveFrameTo(x, (int) y);
+            sleepInterruptible(stepDelay);
+            stepsTaken++;
+            boolean pastSideEdge = exitRight ? (x >= exitX) : (x <= exitX);
+            if (pastSideEdge && y >= offBottom) {
+                break;
+            }
+            // Safety bound: never loop forever even if speed/lift maths
+            // produce an unexpected result.
+            if (stepsTaken > 600 || Math.abs(x - startX) > arcSpan + Math.max(mon.width, 2000)) {
+                break;
+            }
+            // If we're already well past the side edge AND past mon.bottom
+            // we're fully off the screen; bail.
+            if (pastSideEdge && y >= mon.y + mon.height + petH) {
+                break;
+            }
+        }
+    }
+
+    /** Initial upward velocity (in px / 16 ms tick) that, under the same
+     *  {@code gravity = 1.6} px/step used by {@link #jumpOffEdge}, peaks
+     *  at roughly {@code lift} pixels above the launch Y. Solves
+     *  {@code lift = v0^2 / (2 * g)} for {@code v0}. */
+    private static double computeInitialVy(int lift) {
+        return Math.sqrt(2.0 * 1.6 * Math.max(1, lift));
     }
 
     private static final int AIRBORNE_TOLERANCE_PX = 2;
@@ -2141,11 +2246,28 @@ public abstract class Pet implements Runnable {
             int curX = logicalLocation().x;
             hiddenReturnX = curX;
             int curMid = curX + petW / 2;
-            int monMid = mon.x + mon.width / 2;
-            int exitX = (curMid < monMid)
-                    ? (mon.x - petW - 4)             // walk off the left edge
-                    : (mon.x + mon.width + 4);       // walk off the right edge
-            walkAlongFloor(world, exitX);
+            int leftDist  = curMid - mon.x;
+            int rightDist = (mon.x + mon.width) - curMid;
+            boolean exitRight = rightDist <= leftDist;
+            int distToEdge = exitRight ? rightDist : leftDist;
+            if (distToEdge <= EDGE_RUN_OFF_DIST_PX) {
+                // Already near a side: a short horizontal walk off the
+                // nearer edge reads naturally and keeps ground contact.
+                int exitX = exitRight
+                        ? (mon.x + mon.width + 4)
+                        : (mon.x - petW - 4);
+                walkAlongFloor(world, exitX);
+            } else {
+                // Mid-monitor: walking all the way to an edge would feel
+                // like a long, listless exit. Mirror the perch-recovery
+                // path and leap off the nearer side in a parabolic arc
+                // that carries the pet up + sideways and then off the
+                // bottom of the screen. This is what
+                // knockedOffPerchAndRespawn uses for the same "I need
+                // to get off-screen from far away" situation, so the
+                // visual vocabulary stays consistent.
+                jumpOffEdge(mon, exitRight);
+            }
             hidden = true;
             if (disposeAfterHide) {
                 // Pet is now off-screen and will not come back: tear down
