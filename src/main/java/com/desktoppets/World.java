@@ -23,7 +23,20 @@ public record World(int screenW, int screenH, Rectangle foreground, Rectangle ta
                     List<Rectangle> topmostWindows,
                     long foregroundStableMs) {
 
-    private static final long TTL_MS = 150;
+    /** How long a {@link #snapshot} is reused before the next caller pays
+     *  the cost of re-enumerating Win32 top-level windows. Set to ~1 s so
+     *  per-pet ticks ({@code 5\u00d7/sec} per pet, several pets) collapse
+     *  onto a single Win32 enumeration per second. The detection lag this
+     *  introduces is:
+     *  <ul>
+     *    <li>up to ~1 s for "user switched apps" (greet-foreground) \u2014
+     *        well within human reaction latency;</li>
+     *    <li>up to ~1 s for "a window slid on top of the pet's perch and
+     *        the pet should fall" \u2014 acceptable; the pet then falls
+     *        smoothly with gravity once detected.</li>
+     *  </ul>
+     */
+    private static final long TTL_MS = 1000;
     private static final AtomicReference<Cached> CACHE = new AtomicReference<>();
     /** When the current foreground rectangle was first observed. */
     private static volatile long foregroundSeenSinceMs = 0L;

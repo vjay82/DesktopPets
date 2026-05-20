@@ -773,10 +773,25 @@ public abstract class Pet implements Runnable {
         if (loc.y >= targetY - AIRBORNE_TOLERANCE_PX) {
             return false;
         }
+        // Severe fall: the perch the pet was standing on disappeared by a
+        // lot (e.g. the user covered a high window with a fullscreen one,
+        // or closed the perch entirely). Plummeting from the top of the
+        // monitor straight down to the desktop floor reads as a glitch.
+        // Instead, fall off the bottom of the monitor cleanly and respawn
+        // after a short pause via the same re-entry mechanic used by
+        // {@link Activities#DISAPPEAR_REAPPEAR}. The pet then walks back
+        // in from a random monitor edge, so it feels like a deliberate
+        // exit-and-return rather than a long uncontrolled drop.
+        Rectangle mon = currentMonitorBounds();
+        int fallDistance = targetY - loc.y;
+        if (fallDistance > Math.max(120, mon.height / 2)) {
+            knockedOffPerchAndRespawn(world, mon);
+            return true;
+        }
         int x = loc.x;
         double y = loc.y;
         double vy = 0.0;
-        double gravity = 1.6; // px per 16 ms step â€” matches fallOutAndExit
+        double gravity = 1.6; // px per 16 ms step \u2014 matches fallOutAndExit
         while (y < targetY && !Thread.currentThread().isInterrupted()) {
             vy += gravity;
             y = Math.min(targetY, y + vy);
@@ -785,6 +800,44 @@ public abstract class Pet implements Runnable {
         }
         moveFrameTo(x, targetY);
         return true;
+    }
+
+    /**
+     * Long-fall recovery: continue gravity past the bottom of {@code mon}
+     * so the pet visually plummets off-screen, pause briefly while
+     * invisible, then re-enter on a (mostly the same, occasionally
+     * random) monitor via {@link #pickReentryPlan}. The
+     * {@link MonitorClipper} inside {@link #moveFrameTo} hides the frame
+     * automatically once it's fully past the monitor edge.
+     */
+    private void knockedOffPerchAndRespawn(World world, Rectangle mon) {
+        Point start = logicalLocation();
+        int x = start.x;
+        double y = start.y;
+        double vy = 0.0;
+        double gravity = 1.6;
+        int offTarget = mon.y + mon.height + petSize;
+        while (y < offTarget && !Thread.currentThread().isInterrupted()) {
+            vy += gravity;
+            y += vy;
+            moveFrameTo(x, (int) y);
+            sleepInterruptible(16L);
+        }
+        if (Thread.currentThread().isInterrupted()) {
+            return;
+        }
+        // Pause out-of-sight before respawning so the event registers as
+        // a brief disappearance, not an instant teleport.
+        long pauseMs = 1500L + ThreadLocalRandom.current().nextLong(0, 2500L);
+        sleepInterruptible(pauseMs);
+        if (Thread.currentThread().isInterrupted()) {
+            return;
+        }
+        EntryPlan plan = pickReentryPlan(mon, primaryMonitorBounds());
+        activeMonitor = plan.monitor;
+        moveFrameTo(plan.entryStart.x, plan.entryStart.y);
+        refreshCurrentSprite();
+        walkAlongFloor(world, plan.target.x);
     }
 
     private static final int AIRBORNE_TOLERANCE_PX = 2;
@@ -1985,6 +2038,15 @@ public abstract class Pet implements Runnable {
     /** Logical X to walk back to on resume — captured at the start of the
      *  hide walk so the pet returns roughly where it was suspended. */
     private volatile Integer hiddenReturnX = null;
+    /** Set by {@link #requestHideAndDispose()}: once the pending hide walk
+     *  completes, {@link #runPendingHideShow} disposes the window and flags
+     *  {@link #exitRequested} so {@link BehaviorEngine} exits its loop. */
+    private volatile boolean disposeAfterHide = false;
+    /** Set after the dispose-on-hide flow finishes (or directly by
+     *  {@link #requestHideAndDispose()} when the pet is already hidden).
+     *  {@link BehaviorEngine} polls this and breaks out of its run loop so
+     *  the pet thread terminates without leaking. */
+    private volatile boolean exitRequested = false;
 
     /**
      * Request a non-destructive off-screen exit. Cheap and idempotent: a
@@ -2015,6 +2077,46 @@ public abstract class Pet implements Runnable {
     }
 
     /**
+     * Request a non-destructive off-screen exit followed by permanent
+     * disposal of the window and termination of the behaviour thread.
+     * Used by {@link PetSupervisor#reconcileCounts} when the desired pet
+     * count shrinks (e.g. on leaving a Teams meeting) so the soon-to-be-
+     * removed pets walk out of view instead of vanishing in place. Cheap
+     * and idempotent; safe from any thread.
+     *
+     * <p>If the pet is already hidden (parked off-screen from a previous
+     * {@link #requestHide()}), the window is disposed immediately and the
+     * behaviour thread is signalled to exit on its next tick — no second
+     * walk-off animation, because the pet is not visible anyway.
+     */
+    public final void requestHideAndDispose() {
+        if (exitRequested) {
+            return;
+        }
+        disposeAfterHide = true;
+        if (hidden) {
+            // Already off-screen — just clean up. The behaviour thread is
+            // sleeping inside the hidden-poll branch of BehaviorEngine; the
+            // exitRequested flag we set below will make it break out of
+            // the loop on its next 250 ms wake-up.
+            disposeWindow();
+            exitRequested = true;
+            return;
+        }
+        requestHide();
+    }
+
+    /**
+     * True once {@link #requestHideAndDispose()} has finished its exit walk
+     * (or skipped it because the pet was already hidden) and the pet is
+     * ready to have its behaviour thread terminated. {@link BehaviorEngine}
+     * polls this once per tick and breaks out of its run loop when set.
+     */
+    public final boolean isExitRequested() {
+        return exitRequested;
+    }
+
+    /**
      * Called once per {@link BehaviorEngine} tick. Synchronously executes
      * a hide- or show-walk if one is pending; otherwise returns immediately.
      * The walks use {@link #walkAlongFloor}, so {@link #moveFrameTo}'s
@@ -2029,6 +2131,10 @@ public abstract class Pet implements Runnable {
                 // Nothing visible to animate — just flip the state so the
                 // engine stops behaving.
                 hidden = true;
+                if (disposeAfterHide) {
+                    disposeWindow();
+                    exitRequested = true;
+                }
                 return;
             }
             int petW = effectiveWidth();
@@ -2041,6 +2147,12 @@ public abstract class Pet implements Runnable {
                     : (mon.x + mon.width + 4);       // walk off the right edge
             walkAlongFloor(world, exitX);
             hidden = true;
+            if (disposeAfterHide) {
+                // Pet is now off-screen and will not come back: tear down
+                // the window and let BehaviorEngine exit on its next tick.
+                disposeWindow();
+                exitRequested = true;
+            }
             return;
         }
         if (showRequested && hidden) {
@@ -2114,8 +2226,11 @@ public abstract class Pet implements Runnable {
         int currentFeetY = logicalLocation().y + feetH;
         int y = world.floorY(feetH, x, petW, currentFeetY);
         // Cap to the bottom of the monitor at this column, minus any shell
-        // taskbar that covers it â€” see monitorBottomAtColumn for rationale.
-        int monMaxY = monitorBottomAtColumn(x) - feetH;
+        // taskbar that covers it \u2014 BUT only when the taskbar is actually
+        // visible at this column. If a higher-Z window has slid on top of
+        // the taskbar, drop the cap so the pet falls onto whatever surface
+        // is really visible (typically the desktop floor at screenH).
+        int monMaxY = effectiveMonitorBottomAtColumn(world, x, petW) - feetH;
         return Math.min(y, monMaxY);
     }
 
@@ -2168,6 +2283,73 @@ public abstract class Pet implements Runnable {
      * "missed" and the pet to land behind it.
      */
     private int monitorBottomAtColumn(int x) {
+        MonitorBottom mb = monitorBottomInfoAtColumn(x);
+        return mb.workBottom;
+    }
+
+    /**
+     * Like {@link #monitorBottomAtColumn(int)}, but consults {@code world}
+     * to decide whether the AWT bottom inset (taskbar) at column {@code x}
+     * is actually still visible. If a higher-Z top-level window covers the
+     * column in the taskbar band, the taskbar at this column is occluded
+     * \u2014 so the cap is dropped to the raw monitor bottom and the pet is
+     * allowed to fall down onto whatever surface {@link World#floorY}
+     * resolves (which will skip the hidden taskbar via the same occlusion
+     * rule). When the taskbar is visible (or we can't tell), the cap stays
+     * at the work-area bottom so pets don't stand on the taskbar wallpaper.
+     *
+     * <p>Rationale: previously this cap was unconditional, so a pet
+     * standing above the taskbar kept floating there even after another
+     * app's window slid on top and visually hid the taskbar. Per the
+     * "fall onto whatever's actually on top" rule, the pet should drop
+     * to the covering window's bottom edge (or to the desktop floor).
+     */
+    private int effectiveMonitorBottomAtColumn(World world, int x, int petWidth) {
+        MonitorBottom mb = monitorBottomInfoAtColumn(x);
+        if (mb.workBottom >= mb.monBottom || world == null) {
+            return mb.workBottom; // no taskbar inset to cap against, or no world snapshot
+        }
+        boolean taskbarSeenOnTop = false;
+        boolean coveredByHigherZ  = false;
+        // Walk topmost windows in z-order, top-first. The first window we
+        // encounter that overlaps the pet's column AND extends across the
+        // taskbar band is the one actually visible there.
+        for (Rectangle r : world.topmostWindows()) {
+            if (r.x + r.width <= x || r.x >= x + Math.max(1, petWidth)) {
+                continue; // no horizontal overlap at the pet's footprint
+            }
+            int topY = r.y;
+            int botY = r.y + r.height;
+            if (botY <= mb.workBottom) {
+                continue; // sits entirely above the taskbar band \u2014 doesn't cover it
+            }
+            // A rect whose top is at-or-below the work-area bottom and
+            // whose body sits inside the inset band is the taskbar itself
+            // (or a panel occupying that band). If we hit it before any
+            // covering window, the taskbar is still on top.
+            if (topY >= mb.workBottom - 2) {
+                taskbarSeenOnTop = true;
+                break;
+            }
+            // Otherwise: a higher-Z window whose top is above the work
+            // area and whose body reaches into the taskbar band \u2014 it
+            // covers the taskbar at this column.
+            coveredByHigherZ = true;
+            break;
+        }
+        if (coveredByHigherZ) {
+            return mb.monBottom; // taskbar hidden \u2014 allow falling all the way down
+        }
+        // Either the taskbar was seen first (still on top) or we never
+        // saw anything overlapping at this column (taskbar list filter or
+        // headless). Keep the work-area cap as before.
+        return mb.workBottom;
+    }
+
+    /** Pair of (monitor bottom, work-area bottom) for a screen column. */
+    private record MonitorBottom(int monBottom, int workBottom) {}
+
+    private MonitorBottom monitorBottomInfoAtColumn(int x) {
         try {
             GraphicsConfiguration bestCfg = null;
             Rectangle bestMon = null;
@@ -2189,18 +2371,20 @@ public abstract class Pet implements Runnable {
                 bestCfg = pd.getDefaultConfiguration();
                 bestMon = bestCfg.getBounds();
             }
-            int bottom = bestMon.y + bestMon.height;
+            int monBottom = bestMon.y + bestMon.height;
+            int workBottom = monBottom;
             try {
                 Insets ins = Toolkit.getDefaultToolkit().getScreenInsets(bestCfg);
                 if (ins != null && ins.bottom > 0) {
-                    bottom -= ins.bottom;
+                    workBottom -= ins.bottom;
                 }
             } catch (Throwable t) {
                 // ignore \u2014 fall back to raw monitor bottom
             }
-            return bottom;
+            return new MonitorBottom(monBottom, workBottom);
         } catch (Throwable t) {
-            return (int) screen.getHeight();
+            int h = (int) screen.getHeight();
+            return new MonitorBottom(h, h);
         }
     }
 
@@ -2292,7 +2476,7 @@ public abstract class Pet implements Runnable {
                 if (probeX < am.x) probeX = am.x;
                 else if (probeX > amHi) probeX = amHi;
             }
-            monBottomCap = monitorBottomAtColumn(probeX) - feetH;
+            monBottomCap = effectiveMonitorBottomAtColumn(world, probeX, petW) - feetH;
         }
 
         for (int i = 1; i <= steps; i++) {

@@ -110,7 +110,12 @@ public final class PetSupervisor {
             }
         }
         for (PetHandle h : toStop) {
-            h.stop();
+            // Animated exit: the pet walks off the nearest monitor edge
+            // and then self-disposes. The behaviour thread terminates on
+            // its own once Pet.exitRequested is observed, so we don't
+            // join here (and we MUST NOT interrupt, or the off-screen
+            // walk would be cut short and the pet would vanish in place).
+            h.stopAnimated();
         }
         for (PetHandle h : toStart) {
             h.thread.start();
@@ -218,9 +223,23 @@ public final class PetSupervisor {
     }
 
     private record PetHandle(Pet pet, Thread thread) {
+        /** Hard stop: interrupt the behaviour thread and dispose the window
+         *  immediately, without any exit animation. Used by
+         *  {@link #shutdown()} on app exit, where we don't want pets
+         *  pirouetting off-screen during JVM teardown. */
         void stop() {
             thread.interrupt();
             pet.disposeWindow();
+        }
+
+        /** Graceful stop: ask the pet to walk off the nearest monitor edge
+         *  and then self-dispose. The behaviour thread terminates on its
+         *  own once {@link Pet#isExitRequested()} flips true (polled in
+         *  {@link BehaviorEngine}). Used by {@link #reconcileCounts} so a
+         *  shrinking pet count (e.g. when a Teams meeting ends) animates
+         *  the surplus pets off-screen instead of vanishing them in place. */
+        void stopAnimated() {
+            pet.requestHideAndDispose();
         }
     }
 }

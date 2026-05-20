@@ -65,6 +65,15 @@ public final class BehaviorEngine {
             // While hidden, skip all behaviour (no reassertTopmost, no
             // activity selection) and just poll for the resume flag.
             pet.runPendingHideShow(world);
+            // Graceful removal: PetSupervisor.reconcileCounts() shrinks the
+            // roster by calling Pet.requestHideAndDispose(), which runs an
+            // off-screen walk inside runPendingHideShow() and then flags
+            // exitRequested. Bail out of the loop here so the pet thread
+            // terminates instead of busy-looping in the hidden branch
+            // forever.
+            if (pet.isExitRequested()) {
+                break;
+            }
             if (pet.isHidden()) {
                 try {
                     Thread.sleep(250);
