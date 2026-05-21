@@ -146,15 +146,15 @@ public final class Doodle {
     }
 
     private static String resolveCat(String[] p) {
-        // Cat/Idle tiles 000-004 are full-figure frames; 005-007 are near-empty
-        // placeholder slots from the original sheet, so we avoid them.
+        // Cat/Idle tiles 000-003 are full-figure frames; the original sheet's
+        // remaining slots were near-empty placeholders and have been removed.
         // sleep.png / idle1.png / etc. are wide multi-frame sheets and would
         // render squashed into a square label, so we substitute an idle tile.
         if (p.length < 2) return tile("Cat/Idle", 0);
         String state = p[1];
         int i = safeInt(p, 2, 0);
         switch (state) {
-            case "idle":       return tile("Cat/Idle",       i % 5);
+            case "idle":       return tile("Cat/Idle",       i % 4);
             case "walk-left":  return tile("Cat/Walk/Left",  i % 8);
             case "walk-right": return tile("Cat/Walk/Right", i % 8);
             case "run-left":   return tile("Cat/Run/Left",   i % 8);
@@ -165,8 +165,10 @@ public final class Doodle {
             case "sleep":      return tile("Cat/Idle", 2);
             // Dedicated pixel-art scratch pose (lifted hind paw + motion lines).
             case "scratch":    return "Sprites/Cat/Scratch/scratch.svg";
-            // 2-frame sway dance (body translated -/+ a couple px per frame).
-            case "dance":      return tile("Cat/Dance", i % 2);
+            // 6-frame dance: hop, lean-left, big-hop, lean-right,
+            // mirror-spin, squat. Each frame wraps the idle body in a
+            // viewBox-space transform (see tools/gen-dance-frames.ps1).
+            case "dance":      return tile("Cat/Dance", Math.floorMod(i, 6));
             default:           return tile("Cat/Idle", 0);
         }
     }
@@ -189,8 +191,8 @@ public final class Doodle {
             case "sleep":      return tile("Dog/Idle", 2);
             // Dedicated pixel-art scratch pose (raised rear paw + motion lines).
             case "scratch":    return "Sprites/Dog/Scratch/scratch.svg";
-            // 2-frame sway dance.
-            case "dance":      return tile("Dog/Dance", i % 2);
+            // 6-frame dance (see Cat/dance comment).
+            case "dance":      return tile("Dog/Dance", Math.floorMod(i, 6));
             default:           return tile("Dog/Idle", 0);
         }
     }
@@ -212,8 +214,8 @@ public final class Doodle {
             case "sleep":      return "Sprites/Ducky/Crouch/crouch.svg";
             // Dedicated pixel-art scratch pose (raised orange foot + motion lines).
             case "scratch":    return "Sprites/Ducky/Scratch/scratch.svg";
-            // 2-frame sway dance.
-            case "dance":      return tile("Ducky/Dance", i % 2);
+            // 6-frame dance (see Cat/dance comment).
+            case "dance":      return tile("Ducky/Dance", Math.floorMod(i, 6));
             default:           return tile("Ducky/Idle", 0);
         }
     }
@@ -240,8 +242,8 @@ public final class Doodle {
             // Knocked-out pose (belly-up, legs in air, impact stars). Used
             // by Pet.fallOutAndExit when a Bird visitor is hit by a Ball.
             case "hit":        return "Sprites/Bird/Hit/hit.svg";
-            // 2-frame sway dance.
-            case "dance":      return tile("Bird/Dance", i % 2);
+            // 6-frame dance (see Cat/dance comment).
+            case "dance":      return tile("Bird/Dance", Math.floorMod(i, 6));
             default:           return tile("Bird/Idle", 1);
         }
     }

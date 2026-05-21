@@ -3271,18 +3271,20 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Dance loop: cycles the two {@code /dance/0..1} sway frames over a
-     * music-note emote for a handful of beats. Each species' Dance/
-     * sprites are the sit/idle pose translated a couple of pixels in
-     * opposite directions, so cycling them at ~280 ms produces a clear
-     * side-to-side wiggle. Interrupts cleanly on hover/click/external
-     * thread interrupt.
+     * Dance loop: cycles the 6 {@code /dance/0..5} body-transform frames
+     * (hop, lean-left, big-hop, lean-right, mirror-spin, squat) over a
+     * music-note emote. Each frame is the pet's idle body wrapped in a
+     * fresh viewBox-space transform (see tools/gen-dance-frames.ps1) so
+     * actual movement is visible rather than a 2-frame side-shuffle.
+     * At ~180 ms/frame a full cycle is ~1.1 s; 18 frames ≈ three full
+     * cycles, long enough to read as a routine without overstaying.
+     * Interrupts cleanly on hover/click/external thread interrupt.
      */
     public final void dance() {
         Sprites.apply(emoteLabel, "emote/note");
-        for (int i = 0; i < 8 && !interrupted(); i++) {
-            Sprites.apply(petLabel, doodleKind() + "/dance/" + (i % 2));
-            sleepInterruptible(280);
+        for (int i = 0; i < 18 && !interrupted(); i++) {
+            Sprites.apply(petLabel, doodleKind() + "/dance/" + i);
+            sleepInterruptible(180);
         }
         Sprites.apply(emoteLabel, null);
         if (!interrupted()) {
