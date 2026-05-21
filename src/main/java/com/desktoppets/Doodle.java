@@ -196,6 +196,10 @@ public final class Doodle {
             case "chomp":      return "Sprites/Emote/chomp.svg";
             case "chat":       return "Sprites/Emote/chat.svg";
             case "vs":         return "Sprites/Emote/vs.svg";
+            case "puff":       return "Sprites/Emote/puff.svg";
+            case "clock":      return "Sprites/Emote/clock.svg";
+            case "gift":       return "Sprites/Emote/gift.svg";
+            case "laser":      return "Sprites/Emote/laser.svg";
             default:           return null;
         }
     }
@@ -324,6 +328,7 @@ public final class Doodle {
             case "bone": return "Sprites/Props/bone.svg";
             case "fish": return "Sprites/Props/fish.svg";
             case "seed": return "Sprites/Props/seed.svg";
+            case "gift": return "Sprites/Props/gift.svg";
             default:     return null;
         }
     }

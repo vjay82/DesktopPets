@@ -299,6 +299,26 @@ public final class BehaviorEngine {
         m.put(Activities.STARING_CONTEST,    new CooldownRange( 90_000L, 150_000L)); // 90..240 s
         m.put(Activities.SHARE_FOOD,         new CooldownRange( 90_000L, 120_000L)); // 90..210 s
         m.put(Activities.COMFORT_HUDDLE,     new CooldownRange( 30_000L,  60_000L)); // 30..90 s — short so distressed pet can re-seek
+        // v2 activity additions.
+        m.put(Activities.DAYDREAM,           new CooldownRange( 75_000L, 120_000L)); // 75..195 s
+        m.put(Activities.SNEEZE,             new CooldownRange(120_000L, 180_000L)); // 2..5 min
+        m.put(Activities.BUTT_WIGGLE_POUNCE, new CooldownRange( 60_000L,  90_000L)); // 60..150 s
+        m.put(Activities.WATCH_CLOCK,        new CooldownRange(300_000L, 600_000L)); // 5..15 min — once per hour-ish
+        m.put(Activities.SCREEN_SCRATCH,     new CooldownRange(150_000L, 180_000L)); // 2.5..5.5 min — mirrors LICK_EDGE
+        m.put(Activities.ROLL_OVER,          new CooldownRange( 90_000L, 150_000L)); // 90..240 s
+        m.put(Activities.INSPECT_WINDOW,     new CooldownRange( 60_000L, 120_000L)); // 60..180 s
+        m.put(Activities.PERCH_NAP,          new CooldownRange( 90_000L, 120_000L)); // 90..210 s
+        m.put(Activities.WINDOW_HOP,         new CooldownRange( 60_000L, 120_000L)); // 60..180 s
+        m.put(Activities.STARE_AT_FOREGROUND,new CooldownRange( 90_000L, 120_000L)); // 90..210 s
+        m.put(Activities.POUNCE_CURSOR,      new CooldownRange( 60_000L, 120_000L)); // 60..180 s
+        m.put(Activities.CHASE_LASER,        new CooldownRange( 90_000L, 120_000L)); // 90..210 s
+        m.put(Activities.TYPE_BUDDY,         new CooldownRange( 90_000L, 120_000L)); // 90..210 s
+        m.put(Activities.COPYCAT,            new CooldownRange( 90_000L, 120_000L)); // 90..210 s
+        m.put(Activities.GIFT,               new CooldownRange(120_000L, 180_000L)); // 2..5 min
+        m.put(Activities.GROOM_OTHER,        new CooldownRange( 90_000L, 120_000L)); // 90..210 s
+        m.put(Activities.PARALLEL_PACE,      new CooldownRange( 60_000L, 120_000L)); // 60..180 s — opportunistic
+        m.put(Activities.BIRD_WARNING,       new CooldownRange( 20_000L,  40_000L)); // mirrors HUNT_BIRD
+        m.put(Activities.HOURLY_BARK,        new CooldownRange(300_000L, 600_000L)); // 5..15 min
         // MAKE_SPACE: very short — the grace timer in its priority lambda
         // already resists immediate re-arming. Span needs to be > 0 because
         // ThreadLocalRandom.nextLong(0, 0) would throw; previously this was

@@ -929,11 +929,21 @@ public abstract class Pet implements Runnable {
         if (frames == null || frames.isEmpty()) {
             frames = exitRight ? walkRightFrames() : walkLeftFrames();
         }
-        int stepDelay = Math.max(6, runStepDelayMs());
+        // The arc maths below assume gravity is in px per 16 ms tick,
+        // so we MUST run the loop at ~16 ms. Previously this honoured
+        // {@link #runStepDelayMs()} (often ~8 ms for fast species),
+        // which doubled the effective gravity / horizontal speed and
+        // made the disappear-jump read as a frame-skipped blur instead
+        // of a leap. Sprite cycling uses its own runStepDelayMs-derived
+        // cadence (every Nth physics tick) to keep the run animation at
+        // its normal pace independent of the physics tick.
+        final int physicsTickMs = 16;
+        int spriteEveryNTicks = Math.max(1, Math.round(runStepDelayMs() / (float) physicsTickMs));
         int spriteIndex = 0;
         // Drive the arc by pixel-steps along X so the speed is consistent
-        // regardless of how far the leap is.
-        int stepPx = Math.max(2, Dpi.scale(4));
+        // regardless of how far the leap is. 3 px / 16 ms \u2248 187 px/s
+        // \u2014 a brisk but readable leap (was 4 px at variable cadence).
+        int stepPx = Math.max(2, Dpi.scale(3));
         int signed = exitRight ? stepPx : -stepPx;
         int x = startX;
         double y = startY;
@@ -942,7 +952,7 @@ public abstract class Pet implements Runnable {
         int stepsTaken = 0;
         int offBottom = mon.y + mon.height + petH;
         while (!Thread.currentThread().isInterrupted()) {
-            if ((stepsTaken % 4) == 0 && !frames.isEmpty()) {
+            if ((stepsTaken % spriteEveryNTicks) == 0 && !frames.isEmpty()) {
                 applySprite(frames.get(spriteIndex % frames.size()));
                 spriteIndex++;
             }
@@ -950,7 +960,7 @@ public abstract class Pet implements Runnable {
             vy += gravity;
             y  += vy;
             moveFrameTo(x, (int) y);
-            sleepInterruptible(stepDelay);
+            sleepInterruptible(physicsTickMs);
             stepsTaken++;
             boolean pastSideEdge = exitRight ? (x >= exitX) : (x <= exitX);
             if (pastSideEdge && y >= offBottom) {
@@ -1814,6 +1824,482 @@ public abstract class Pet implements Runnable {
             sleepInterruptible(500);
         }
         idle();
+    }
+
+    // ---------------- additional solo verbs ----------------
+
+    /**
+     * Sit and cycle three thought-bubble emotes in succession â€” the pet
+     * appears to be daydreaming. Reuses {@code think-food}, {@code mini-heart}
+     * and {@code note}; no new sprite. Small BOREDOM relief: the pet
+     * entertained itself.
+     */
+    public void daydream() {
+        sit();
+        if (interrupted() || hovered || clicked.get()) return;
+        String[] thoughts = {"think-food", "mini-heart", "note"};
+        for (String t : thoughts) {
+            if (interrupted() || hovered || clicked.get()) return;
+            showEmote(t, 1100);
+            sleepInterruptible(900);
+        }
+        needs.add(Need.BOREDOM, 15);
+    }
+
+    /**
+     * Quick vertical bob + {@code puff} cloud emote: the pet sneezes.
+     * Holds in place (no horizontal drift). Idiomatic gap-filler that
+     * adds visible variety without affecting needs.
+     */
+    public void sneeze() {
+        Point start = logicalLocation();
+        // Tiny pre-sneeze "inhale" hold.
+        sit();
+        if (interrupted() || hovered || clicked.get()) return;
+        // The sneeze itself: short upward bob, puff cloud emote at peak.
+        moveFrameTo(start.x, Math.max(0, start.y - 5));
+        showEmote("puff", 500);
+        sleepInterruptible(180);
+        moveFrameTo(start.x, start.y);
+        sleepInterruptible(500);
+    }
+
+    /**
+     * Cat-flavoured pre-pounce: three small left/right oscillations that
+     * read as a "wiggle", then a short forward dash. Direction is chosen
+     * toward the centre of the current monitor so a wall-pinned pet still
+     * has room to dash.
+     */
+    public void buttWigglePounce(World world) {
+        Point start = logicalLocation();
+        int petW = effectiveWidth();
+        Rectangle mon = currentMonitorBounds();
+        int wiggle = Math.max(4, petW / 6);
+        // Three micro oscillations.
+        for (int i = 0; i < 3; i++) {
+            if (interrupted() || hovered || clicked.get()) return;
+            moveFrameTo(Math.max(mon.x, start.x - wiggle), start.y);
+            sleepInterruptible(110);
+            if (interrupted()) return;
+            moveFrameTo(Math.min(mon.x + mon.width - petW, start.x + wiggle), start.y);
+            sleepInterruptible(110);
+        }
+        moveFrameTo(start.x, start.y);
+        if (interrupted() || hovered || clicked.get()) return;
+        // Forward dash toward the monitor centre.
+        int monMid = mon.x + mon.width / 2;
+        int dir = (start.x + petW / 2 < monMid) ? +1 : -1;
+        int dashTarget = Math.max(mon.x,
+                Math.min(mon.x + mon.width - petW, start.x + dir * petW * 3));
+        showEmote("bang", 250);
+        runAlongFloor(world, dashTarget);
+    }
+
+    /**
+     * Top-of-hour Easter egg: head-tilt with a {@code clock} emote.
+     * Cosmetic moment that fires when the system clock just rolled past
+     * a new hour (priority lambda gates the eligibility).
+     */
+    public void watchClock() {
+        showEmote("clock", 1600);
+        // Two head-tilt look poses; uses the same {@code look} key as
+        // {@link #headTilt()} so every species resolves.
+        for (int i = 0; i < 2; i++) {
+            if (interrupted() || hovered || clicked.get()) {
+                idle();
+                return;
+            }
+            applySprite(doodleKind() + "/look/" + i);
+            sleepInterruptible(700);
+        }
+        idle();
+    }
+
+    /**
+     * Solo cat-leaning gag: walk to the nearest monitor edge, sit, and
+     * scratch the screen three times ({@code paw} emote). Sister to
+     * {@link #lickScreenEdge(World)} â€” distinct visual (paw vs tongue)
+     * so the rotation gets two distinct edge-bound moments.
+     */
+    public void screenScratchEdge(World world) {
+        Rectangle mon = currentMonitorBounds();
+        int petW = effectiveWidth();
+        int curMid = logicalLocation().x + petW / 2;
+        int monMid = mon.x + mon.width / 2;
+        int targetX = (curMid < monMid) ? mon.x : mon.x + mon.width - petW;
+        walkAlongFloor(world, targetX);
+        if (interrupted() || hovered || clicked.get()) return;
+        sit();
+        for (int i = 0; i < 3; i++) {
+            if (interrupted() || hovered || clicked.get()) return;
+            showEmote("paw", 600);
+            sleepInterruptible(450);
+        }
+        idle();
+    }
+
+    /**
+     * Roll-over gag: sit â†’ flip to the sleep sprite (legs up / belly out
+     * for dog and cat) â†’ sit. Brief; relies on the existing
+     * {@code sleep}/{@code sit} key resolution per species.
+     */
+    public void rollOver() {
+        sit();
+        if (interrupted() || hovered || clicked.get()) return;
+        showEmote("sparkle", 700);
+        applySprite(doodleKind() + "/sleep");
+        sleepInterruptible(800);
+        if (interrupted() || hovered || clicked.get()) return;
+        applySprite(doodleKind() + "/sit");
+        sleepInterruptible(400);
+        idle();
+    }
+
+    /**
+     * "What's this?" gag: pick a topmost window column at random, walk
+     * to it, sit, show {@code question} then {@code paw}. Activity gates
+     * this on world.topmostWindows() being non-empty.
+     */
+    public void inspectWindow(World world) {
+        java.util.List<Rectangle> wins = world.topmostWindows();
+        if (wins.isEmpty()) { idle(); return; }
+        Rectangle mon = currentMonitorBounds();
+        // Only consider windows overlapping the current monitor.
+        java.util.List<Rectangle> onMon = new java.util.ArrayList<>(wins.size());
+        for (Rectangle r : wins) {
+            if (r.x + r.width > mon.x && r.x < mon.x + mon.width) {
+                onMon.add(r);
+            }
+        }
+        if (onMon.isEmpty()) { idle(); return; }
+        Rectangle pick = onMon.get(ThreadLocalRandom.current().nextInt(onMon.size()));
+        int petW = effectiveWidth();
+        int lo = Math.max(mon.x, pick.x);
+        int hi = Math.max(lo + 1,
+                Math.min(mon.x + mon.width - petW, pick.x + pick.width - petW));
+        int targetX = (lo >= hi) ? lo : ThreadLocalRandom.current().nextInt(lo, hi);
+        walkAlongFloor(world, targetX);
+        if (interrupted() || hovered || clicked.get()) return;
+        sit();
+        if (interrupted()) return;
+        showEmote("question", 800);
+        sleepInterruptible(700);
+        if (interrupted()) return;
+        showEmote("paw", 700);
+        idle();
+    }
+
+    /**
+     * Is this pet currently standing on top of a perch (a topmost window
+     * other than the taskbar)? Used by {@link Activities#PERCH_NAP}.
+     */
+    public final boolean isOnPerch(World world) {
+        if (world == null) return false;
+        int petW = effectiveWidth();
+        int x = logicalLocation().x;
+        int feetY = logicalLocation().y + (int) Math.round(effectiveHeight() * feetYRatio());
+        // Any topmost window whose horizontal span overlaps the pet AND
+        // whose top is within a few pixels of the feet line counts as
+        // "feet planted on this perch".
+        for (Rectangle r : world.topmostWindows()) {
+            if (r.x + r.width <= x || r.x >= x + petW) continue;
+            // Perch top should be at or above the feet line (small slack).
+            if (Math.abs(r.y - feetY) <= Math.max(4, effectiveHeight() / 6)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Sleep cycle restricted to when the pet is already on a perch.
+     * Rewards the user for arranging windows by giving an extra
+     * AFFECTION top-up on top of the full ENERGY restore.
+     */
+    public void perchNap() {
+        sleep();
+        if (interrupted() || hovered || clicked.get()) return;
+        needs.add(Need.AFFECTION, 10);
+    }
+
+    /**
+     * Lateral perch-to-perch hop: pick another topmost window whose
+     * horizontal span doesn't overlap the current pet column and walk
+     * to its near edge. Distinct from the vertical {@code high-perch-leap}
+     * (which jumps up). Cat-leaning gag.
+     */
+    public void windowHop(World world) {
+        java.util.List<Rectangle> wins = world.topmostWindows();
+        if (wins.isEmpty()) { idle(); return; }
+        Rectangle mon = currentMonitorBounds();
+        int petW = effectiveWidth();
+        int myMid = logicalLocation().x + petW / 2;
+        Rectangle best = null;
+        int bestDx = Integer.MAX_VALUE;
+        for (Rectangle r : wins) {
+            // Stay on the current monitor.
+            if (r.x + r.width <= mon.x || r.x >= mon.x + mon.width) continue;
+            // Skip the perch we may already be on (overlap with current column).
+            if (r.x + r.width > myMid - petW / 2 && r.x < myMid + petW / 2) continue;
+            int rMid = r.x + r.width / 2;
+            int dx = Math.abs(rMid - myMid);
+            if (dx < bestDx) {
+                bestDx = dx;
+                best = r;
+            }
+        }
+        if (best == null) { idle(); return; }
+        // Aim for the near edge of the chosen perch.
+        int targetX;
+        if (best.x + best.width / 2 > myMid) {
+            targetX = Math.max(mon.x, best.x);
+        } else {
+            targetX = Math.max(mon.x,
+                    Math.min(mon.x + mon.width - petW, best.x + best.width - petW));
+        }
+        showEmote("paw", 350);
+        walkAlongFloor(world, targetX);
+        if (interrupted() || hovered || clicked.get()) return;
+        sit();
+    }
+
+    /**
+     * Pet has been bored by an inactive desktop â€” walks to the foreground
+     * window's column, sits, and head-tilts twice. Distinct from
+     * {@link Activities#GREET_FOREGROUND} (which fires when fg <i>just</i>
+     * changed); this one fires when fg has been stable a long time.
+     */
+    public void stareAtForeground(World world) {
+        Rectangle fg = world.foreground();
+        if (fg == null) { idle(); return; }
+        Rectangle mon = currentMonitorBounds();
+        int petW = effectiveWidth();
+        int targetX = Math.max(mon.x, Math.min(mon.x + mon.width - petW,
+                fg.x + fg.width / 2 - petW / 2));
+        walkAlongFloor(world, targetX);
+        if (interrupted() || hovered || clicked.get()) return;
+        sit();
+        for (int i = 0; i < 2; i++) {
+            if (interrupted()) return;
+            applySprite(doodleKind() + "/look/" + (i % 2));
+            showEmote("question", 800);
+            sleepInterruptible(900);
+        }
+        idle();
+    }
+
+    /**
+     * Pounce on the cursor: short pre-wiggle (one beat) then sprint to the
+     * cursor's column with a {@code bang} emote on arrival. Distinct from
+     * {@link #stalkPointer} (slow creep) and {@link #huntCursor} (sustained
+     * chase) â€” pounce is one explosive shot.
+     */
+    public void pounceCursor(World world) {
+        Point c = World.cursorPos();
+        if (c == null) { idle(); return; }
+        Rectangle mon = currentMonitorBounds();
+        if (!mon.contains(c)) { idle(); return; }
+        int petW = effectiveWidth();
+        // Pre-pounce wiggle: one quick L/R hop.
+        Point start = logicalLocation();
+        int wiggle = Math.max(3, petW / 8);
+        moveFrameTo(Math.max(mon.x, start.x - wiggle), start.y);
+        sleepInterruptible(100);
+        moveFrameTo(Math.min(mon.x + mon.width - petW, start.x + wiggle), start.y);
+        sleepInterruptible(100);
+        moveFrameTo(start.x, start.y);
+        if (interrupted() || hovered || clicked.get()) return;
+        int targetX = Math.max(mon.x,
+                Math.min(mon.x + mon.width - petW, c.x - petW / 2));
+        showEmote("target", 250);
+        runAlongFloor(world, targetX);
+        if (interrupted()) return;
+        showEmote("bang", 500);
+    }
+
+    /**
+     * Phantom laser chase: pet "sees" an imaginary red dot. Three random
+     * on-monitor spots are sprinted to in succession, each with a {@code
+     * laser} emote that flashes at the target column. Cat-leaning.
+     */
+    public void chaseLaser(World world) {
+        Rectangle mon = currentMonitorBounds();
+        int petW = effectiveWidth();
+        for (int i = 0; i < 3; i++) {
+            if (interrupted() || hovered || clicked.get()) return;
+            int hi = Math.max(mon.x + 1, mon.x + mon.width - petW);
+            int targetX = ThreadLocalRandom.current().nextInt(mon.x, hi);
+            showEmote("laser", 500);
+            runAlongFloor(world, targetX);
+            if (interrupted()) return;
+            showEmote("paw", 300);
+            sleepInterruptible(150);
+        }
+        needs.add(Need.BOREDOM, 20);
+    }
+
+    /**
+     * Companionable sit: walk to the cursor's column and sit beside it
+     * (one body-width offset so the pet doesn't visually cover the
+     * pointer). Activity priority gates this on cursor having been
+     * stationary recently.
+     */
+    public void typeBuddy(World world) {
+        Point c = World.cursorPos();
+        if (c == null) { idle(); return; }
+        Rectangle mon = currentMonitorBounds();
+        if (!mon.contains(c)) { idle(); return; }
+        int petW = effectiveWidth();
+        // Offset to the side that keeps us on-monitor.
+        int targetX;
+        if (c.x - petW - 8 >= mon.x) {
+            targetX = c.x - petW - 8;
+        } else {
+            targetX = Math.min(mon.x + mon.width - petW, c.x + 8);
+        }
+        walkAlongFloor(world, targetX);
+        if (interrupted() || hovered || clicked.get()) return;
+        sit();
+        if (interrupted()) return;
+        showEmote("mini-heart", 1200);
+    }
+
+    /**
+     * Mirror a sibling's current activity. Walks adjacent and then plays
+     * one of a small whitelist of safe verbs matching the sibling's
+     * {@link #currentActivityName}. {@code chat} emote at start signals
+     * intent.
+     */
+    public void copyCat(World world) {
+        Pet other = nearestOtherPet(PET_COPY_RADIUS);
+        if (other == null) { idle(); return; }
+        int petW = effectiveWidth();
+        int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+        boolean fromLeft = logicalLocation().x < otherMid;
+        int targetX = fromLeft
+                ? otherMid - other.effectiveWidth() / 2 - petW
+                : otherMid + other.effectiveWidth() / 2;
+        walkAlongFloor(world, targetX);
+        if (interrupted() || hovered || clicked.get()) return;
+        showEmote("chat", 500);
+        String mirror = other.currentActivityName;
+        switch (mirror) {
+            case "yawn":  yawn();  break;
+            case "dance": dance(); break;
+            case "sit":
+            case "idle":
+            default:      sit();   break;
+        }
+    }
+
+    /** Search radius for {@link #copyCat}, {@link #groomOther},
+     *  {@link #parallelPace} and {@link #gift}. Mirrors {@code Activities.PET_PET_RADIUS}. */
+    private static final int PET_COPY_RADIUS = 1200;
+
+    /**
+     * Walk to ball-spawn area to "pick up" a {@code prop/gift}, then
+     * carry it to the nearest sibling and hand it over. Sibling shows
+     * {@code mini-heart}; both pets gain AFFECTION.
+     */
+    public void gift(World world) {
+        Pet other = nearestOtherPet(PET_COPY_RADIUS);
+        if (other == null) { idle(); return; }
+        // "Pick up" gift in place.
+        showProp("prop/gift");
+        showEmote("gift", 600);
+        sleepInterruptible(500);
+        if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
+        int petW = effectiveWidth();
+        int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+        boolean fromLeft = logicalLocation().x < otherMid;
+        int targetX = fromLeft
+                ? otherMid - other.effectiveWidth() / 2 - petW
+                : otherMid + other.effectiveWidth() / 2;
+        walkAlongFloor(world, targetX);
+        if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
+        // Hand over: clear our prop, sibling gets a heart.
+        clearProp();
+        other.showEmote("mini-heart", 1200);
+        showEmote("sparkle", 700);
+        needs.add(Need.AFFECTION, 15);
+        other.needs.add(Need.AFFECTION, 25);
+        other.needs.add(Need.BOREDOM, -10);
+    }
+
+    /**
+     * Grooming variant: approach the sibling and stand <i>behind</i> them
+     * (one body-width on the same side as the approach direction), then
+     * lick three times. Distinct from {@link Activities#LICK_PET} (sit
+     * beside).
+     */
+    public void groomOther(World world) {
+        Pet other = nearestOtherPet(PET_COPY_RADIUS);
+        if (other == null) { idle(); return; }
+        int petW = effectiveWidth();
+        int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+        boolean fromLeft = logicalLocation().x < otherMid;
+        // Stand on the OPPOSITE side from LICK_PET so the visual reads as
+        // "behind" rather than "beside".
+        int targetX = fromLeft
+                ? otherMid + other.effectiveWidth() / 2
+                : otherMid - other.effectiveWidth() / 2 - petW;
+        Rectangle mon = currentMonitorBounds();
+        targetX = Math.max(mon.x, Math.min(mon.x + mon.width - petW, targetX));
+        walkAlongFloor(world, targetX);
+        if (interrupted() || hovered || clicked.get()) return;
+        for (int i = 0; i < 3; i++) {
+            if (interrupted()) return;
+            showEmote("lick", 600);
+            other.showEmote("sparkle", 600);
+            sleepInterruptible(500);
+        }
+        needs.add(Need.AFFECTION, 15);
+        other.needs.add(Need.AFFECTION, 25);
+    }
+
+    /**
+     * Sympathetic pacing: when a sibling is currently pacing, this pet
+     * walks adjacent and runs its own {@link #paceBackAndForth(World)}
+     * loop, so both pets pace in roughly the same area.
+     */
+    public void parallelPace(World world) {
+        Pet other = nearestOtherPet(PET_COPY_RADIUS);
+        if (other == null) { idle(); return; }
+        int petW = effectiveWidth();
+        int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+        boolean fromLeft = logicalLocation().x < otherMid;
+        int approachX = fromLeft
+                ? otherMid - other.effectiveWidth() / 2 - petW * 2
+                : otherMid + other.effectiveWidth() / 2 + petW;
+        Rectangle mon = currentMonitorBounds();
+        approachX = Math.max(mon.x, Math.min(mon.x + mon.width - petW, approachX));
+        walkAlongFloor(world, approachX);
+        if (interrupted() || hovered || clicked.get()) return;
+        paceBackAndForth(world);
+    }
+
+    /**
+     * Visitor-bird reaction for species that don't actively hunt birds
+     * (dog, ducky). Pet freezes, shows {@code bang} then {@code question}
+     * â€” it noticed the intruder but isn't chasing.
+     */
+    public void birdWarning() {
+        sit();
+        if (interrupted() || hovered || clicked.get()) return;
+        showEmote("bang", 500);
+        sleepInterruptible(450);
+        if (interrupted()) return;
+        showEmote("question", 800);
+        sleepInterruptible(700);
+    }
+
+    /**
+     * Top-of-hour vocalisation: emits the per-species {@link #randomSound()}
+     * in a speech bubble. Cosmetic; same call as the {@link Activities#SPEAK}
+     * verb but priority lambda gates this to the first minute of each hour.
+     */
+    public void hourlyBark() {
+        speak(randomSound(), 1500L, Integer.MIN_VALUE);
     }
 
     /** Search radius (logical px) within which a sibling pet may steal the ball. */

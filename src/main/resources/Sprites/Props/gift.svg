@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Prop: gift box the pet carries while delivering a present.
+       Filled corners + thicker outline so it reads at sprite size. -->
+  <!-- Box body -->
+  <rect x="3" y="11" width="18" height="11" fill="#e26a96" stroke="#5a162f" stroke-width="1.1"/>
+  <!-- Lid overhang -->
+  <rect x="2" y="9"  width="20" height="3"  fill="#c84a7a" stroke="#5a162f" stroke-width="1.1"/>
+  <!-- Vertical ribbon -->
+  <rect x="10" y="9"  width="4"  height="13" fill="#fff2cf" stroke="#5a162f" stroke-width="0.6"/>
+  <!-- Horizontal ribbon -->
+  <rect x="2"  y="14" width="20" height="2.4" fill="#fff2cf" stroke="#5a162f" stroke-width="0.5"/>
+  <!-- Bow loops -->
+  <ellipse cx="8.5"  cy="6.5" rx="3.5" ry="2.8" fill="#fff2cf" stroke="#5a162f" stroke-width="0.9"/>
+  <ellipse cx="15.5" cy="6.5" rx="3.5" ry="2.8" fill="#fff2cf" stroke="#5a162f" stroke-width="0.9"/>
+  <!-- Bow knot -->
+  <rect x="11" y="5"  width="2"  height="4"  fill="#d8b04a" stroke="#5a162f" stroke-width="0.6"/>
+  <!-- Two trailing ribbon tails -->
+  <path d="M11 9 L9 12 L11 11 Z" fill="#fff2cf" stroke="#5a162f" stroke-width="0.5"/>
+  <path d="M13 9 L15 12 L13 11 Z" fill="#fff2cf" stroke="#5a162f" stroke-width="0.5"/>
+</svg>

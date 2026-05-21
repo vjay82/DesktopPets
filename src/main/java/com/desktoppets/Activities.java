@@ -1120,22 +1120,172 @@ public final class Activities {
                 pet.speak(pet.randomSound(), 1400L, targetMidX);
             });
 
+    // ---------------- v2 activity additions ----------------
+    // (each gated by Personality.multiplier; 0.0 disables for a species)
+
+    /** Solo: thought-bubble cycle while sitting. */
+    public static final Activity DAYDREAM = new Activity("daydream",
+            (pet, _) -> {
+                // Slightly more likely when bored (gives bored pets a calm outlet).
+                double b = pet.needs.get(Need.BOREDOM);
+                return b < 50 ? 0.5 + (50 - b) * 0.01 : 0.35;
+            },
+            (pet, _) -> pet.daydream());
+
+    /** Solo: vertical bob + puff cloud emote. */
+    public static final Activity SNEEZE = new Activity("sneeze",
+            (_, _) -> 0.25,
+            (pet, _) -> pet.sneeze());
+
+    /** Solo: cat-leaning pre-pounce wiggle + short forward dash. */
+    public static final Activity BUTT_WIGGLE_POUNCE = new Activity("butt-wiggle-pounce",
+            (_, _) -> 0.4,
+            (pet, world) -> pet.buttWigglePounce(world));
+
+    /**
+     * Top-of-hour Easter egg: head-tilt with a clock emote. Eligible only
+     * for the first 90 seconds after the system clock rolls past a new
+     * hour, so it never fires twice in the same hour-band.
+     */
+    public static final Activity WATCH_CLOCK = new Activity("watch-clock",
+            (_, _) -> {
+                int sec = java.time.LocalTime.now().getMinute() * 60
+                        + java.time.LocalTime.now().getSecond();
+                return sec < 90 ? 1.6 : 0;
+            },
+            (pet, _) -> pet.watchClock());
+
+    /** Solo: walk to a monitor edge and "scratch the glass" with paws. */
+    public static final Activity SCREEN_SCRATCH = new Activity("screen-scratch",
+            (_, _) -> 0.25,
+            (pet, world) -> pet.screenScratchEdge(world));
+
+    /** Solo: sit → sleep frame → sit. Dog-leaning. */
+    public static final Activity ROLL_OVER = new Activity("roll-over",
+            (_, _) -> 0.35,
+            (pet, _) -> pet.rollOver());
+
+    /** Window-aware: walk to a random topmost window column and sniff at it. */
+    public static final Activity INSPECT_WINDOW = new Activity("inspect-window",
+            (_, world) -> world.topmostWindows().isEmpty() ? 0 : 0.45,
+            (pet, world) -> pet.inspectWindow(world));
+
+    /** Window-aware: sleep, but only while standing on a perch. Extra AFFECTION reward. */
+    public static final Activity PERCH_NAP = new Activity("perch-nap",
+            (pet, world) -> {
+                if (!pet.isOnPerch(world)) return 0;
+                double e = pet.needs.get(Need.ENERGY);
+                // Need-driven ramp similar to SLEEP but with a lower floor;
+                // priority gated to perch standing so it never preempts the
+                // urgent SLEEP for a critically-tired pet on the ground.
+                return e < 60 ? 1.2 + (60 - e) * 0.02 : 0.4;
+            },
+            (pet, _) -> pet.perchNap());
+
+    /** Window-aware: lateral perch-to-perch hop. Cat-leaning. */
+    public static final Activity WINDOW_HOP = new Activity("window-hop",
+            (_, world) -> world.topmostWindows().size() < 2 ? 0 : 0.45,
+            (pet, world) -> pet.windowHop(world));
+
+    /** Window-aware: walk to fg column and head-tilt when fg has been stable. */
+    public static final Activity STARE_AT_FOREGROUND = new Activity("stare-at-foreground",
+            (pet, world) -> {
+                if (world.foreground() == null) return 0;
+                if (world.foregroundStableMs() < 30_000L) return 0;
+                double b = pet.needs.get(Need.BOREDOM);
+                return b < 50 ? 0.6 : 0.3;
+            },
+            (pet, world) -> pet.stareAtForeground(world));
+
+    /** Cursor: explosive pounce on the cursor (one-shot, distinct from stalk/hunt). */
+    public static final Activity POUNCE_CURSOR = new Activity("pounce-cursor",
+            (pet, _) -> {
+                java.awt.Point c = World.cursorPos();
+                if (c == null) return 0;
+                Rectangle mon = pet.currentMonitorBounds();
+                if (!mon.contains(c)) return 0;
+                int reach = Math.max(400, pet.effectiveWidth() * 6);
+                int petMid = pet.logicalLocation().x + pet.effectiveWidth() / 2;
+                return Math.abs(c.x - petMid) <= reach ? 0.55 : 0;
+            },
+            (pet, world) -> pet.pounceCursor(world));
+
+    /** Cursor-free: phantom red dot the pet sees and chases. */
+    public static final Activity CHASE_LASER = new Activity("chase-laser",
+            (_, _) -> 0.4,
+            (pet, world) -> pet.chaseLaser(world));
+
+    /** Cursor: walk to a stationary cursor's column and sit beside it. */
+    public static final Activity TYPE_BUDDY = new Activity("type-buddy",
+            (pet, _) -> {
+                java.awt.Point c = World.cursorPos();
+                if (c == null) return 0;
+                Rectangle mon = pet.currentMonitorBounds();
+                if (!mon.contains(c)) return 0;
+                // Stationary heuristic: cursor moved < 30 px in the last 10 s.
+                return World.cursorMotionPx(10_000L) < 30 ? 0.5 : 0;
+            },
+            (pet, world) -> pet.typeBuddy(world));
+
+    /** Pet-pet: mirror a sibling's current activity (whitelisted verbs). */
+    public static final Activity COPYCAT = new Activity("copycat",
+            (pet, _) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.35 : 0,
+            (pet, world) -> pet.copyCat(world));
+
+    /** Pet-pet: carry a gift prop to a sibling and hand it over. */
+    public static final Activity GIFT = new Activity("gift",
+            (pet, _) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.35 : 0,
+            (pet, world) -> pet.gift(world));
+
+    /** Pet-pet: stand behind sibling and lick three times. */
+    public static final Activity GROOM_OTHER = new Activity("groom-other",
+            (pet, _) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.35 : 0,
+            (pet, world) -> pet.groomOther(world));
+
+    /** Pet-pet: pace alongside a pacing sibling. */
+    public static final Activity PARALLEL_PACE = new Activity("parallel-pace",
+            (pet, _) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return 0;
+                return "pace".equals(other.currentActivityName) ? 0.9 : 0;
+            },
+            (pet, world) -> pet.parallelPace(world));
+
+    /** Non-cat reaction to a visiting bird: freeze + bang/question. */
+    public static final Activity BIRD_WARNING = new Activity("bird-warning",
+            (pet, _) -> pet.nearestVisitor(BIRD_HUNT_RADIUS) != null ? 1.5 : 0,
+            (pet, _) -> pet.birdWarning());
+
+    /** Top-of-hour: pet emits its species sound. Eligible only for first 60 s of each hour. */
+    public static final Activity HOURLY_BARK = new Activity("hourly-bark",
+            (_, _) -> {
+                int sec = java.time.LocalTime.now().getMinute() * 60
+                        + java.time.LocalTime.now().getSecond();
+                return sec < 60 ? 1.4 : 0;
+            },
+            (pet, _) -> pet.hourlyBark());
+
     /** All activities in priority tie-break order (urgent → cosmetic). */
     public static final List<Activity> ALL = List.of(
             SLEEP, EAT, DRINK, SEEK_PETTING, PLAY_BALL,
-            STARTLE_FLUSH, GREET_FOREGROUND,
-            STALK_POINTER, HUNT_CURSOR, FETCH_CURSOR, FOLLOW_CURSOR,
+            STARTLE_FLUSH, GREET_FOREGROUND, BIRD_WARNING,
+            STALK_POINTER, HUNT_CURSOR, POUNCE_CURSOR, FETCH_CURSOR, FOLLOW_CURSOR,
             COMFORT_HUDDLE,
             GREET_PET, CHASE_PET, HUNT_PET, HUNT_BIRD, SNIFF, NUDGE, TAG, LICK_PET,
             CONVERSE, JOIN_DANCE, STARTLE, NAP_TOGETHER,
             FOLLOW_LEADER, STARING_CONTEST, SHARE_FOOD,
+            COPYCAT, GIFT, GROOM_OTHER, PARALLEL_PACE,
             DISAPPEAR_REAPPEAR, ZOOMIES, WANDER,
             HIGH_PERCH_LEAP, GROOMING, KNOCK_SOMETHING_OFF,
+            INSPECT_WINDOW, WINDOW_HOP, PERCH_NAP, STARE_AT_FOREGROUND,
             FLIT, CIRCLE, PERCH_SING,
             WADDLE_LOOP, CRAWL_SNEAK, CROUCH_POUT, QUACK_COMBO,
             DIG, SCRATCH, DANCE,
             CHASE_TAIL, HICCUP, STARGAZE, BURST_OF_HEARTS,
             HEAD_TILT, YAWN, MOON_GAZE, PACE, LICK_EDGE, SPEAK,
+            DAYDREAM, SNEEZE, BUTT_WIGGLE_POUNCE, WATCH_CLOCK,
+            SCREEN_SCRATCH, ROLL_OVER, CHASE_LASER, TYPE_BUDDY,
+            HOURLY_BARK,
             MAKE_SPACE,
             IDLE);
 }

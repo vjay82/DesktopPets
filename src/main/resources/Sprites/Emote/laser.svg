@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Phantom laser dot: small bright red disc with a soft glow halo. -->
+  <circle cx="12" cy="12" r="6.5" fill="#ff5455" fill-opacity="0.18"/>
+  <circle cx="12" cy="12" r="4.0" fill="#ff2a2c" fill-opacity="0.35"/>
+  <circle cx="12" cy="12" r="2.2" fill="#ff0008"/>
+  <!-- Tiny specular highlight so the dot reads as a spot of light. -->
+  <circle cx="11" cy="11" r="0.7" fill="#ffd6d6"/>
+</svg>
