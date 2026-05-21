@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <ellipse cx="50" cy="80" rx="34" ry="5" fill="#000" opacity="0.22"/>
+  <!-- body -->
+  <ellipse cx="46" cy="55" rx="30" ry="16" fill="#7fb5d8" stroke="#2f5a76" stroke-width="2.5"/>
+  <!-- tail -->
+  <polygon points="76,55 92,40 92,70" fill="#7fb5d8" stroke="#2f5a76" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- gill -->
+  <path d="M58 48 Q62 55 58 62" fill="none" stroke="#2f5a76" stroke-width="2"/>
+  <!-- eye -->
+  <circle cx="28" cy="50" r="3.5" fill="#fff" stroke="#2f5a76" stroke-width="1.5"/>
+  <circle cx="28" cy="50" r="1.6" fill="#1a1a1a"/>
+  <!-- scales / highlight -->
+  <path d="M40 48 Q46 52 40 56" fill="none" stroke="#2f5a76" stroke-width="1.2"/>
+  <path d="M48 48 Q54 52 48 56" fill="none" stroke="#2f5a76" stroke-width="1.2"/>
+  <path d="M40 60 Q46 64 40 68" fill="none" stroke="#2f5a76" stroke-width="1.2"/>
+</svg>

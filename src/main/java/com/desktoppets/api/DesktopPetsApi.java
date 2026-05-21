@@ -54,6 +54,11 @@ public final class DesktopPetsApi {
      */
     public static final class DesktopPetsConfig {
         private final Map<String, Integer> counts = new LinkedHashMap<>();
+        /** Optional per-pet hue rotation in degrees [0, 360). Outer key is
+         *  the species id, inner key is the 0-based instance index within
+         *  that species. Absent / missing entries default to {@code 0.0}
+         *  (no tinting, backwards-compatible). */
+        private final Map<String, Map<Integer, Double>> hueByPet = new LinkedHashMap<>();
         private int petSize = Config.DEFAULT_SIZE;
         private double activity = Config.DEFAULT_ACTIVITY;
         private boolean visitorBirdsEnabled = false;
@@ -73,6 +78,56 @@ public final class DesktopPetsApi {
                 }
             }
             return this;
+        }
+
+        /**
+         * Set a per-pet hue rotation in degrees. Negative values and values
+         * outside {@code [0, 360)} are normalised. Embedders are expected
+         * to derive {@code degrees} deterministically from
+         * {@code (species, index)} so the same pet keeps its colour
+         * across sessions.
+         *
+         * <p>{@code degrees == 0} clears any prior entry (no tinting).
+         */
+        public DesktopPetsConfig setHue(String species, int index, double degrees) {
+            if (species == null || index < 0) return this;
+            String id = species.toLowerCase(java.util.Locale.ROOT);
+            double normalised = ((degrees % 360.0) + 360.0) % 360.0;
+            if (normalised < 0.5 || normalised > 359.5) {
+                Map<Integer, Double> m = hueByPet.get(id);
+                if (m != null) {
+                    m.remove(index);
+                    if (m.isEmpty()) hueByPet.remove(id);
+                }
+            } else {
+                hueByPet.computeIfAbsent(id, k -> new LinkedHashMap<>())
+                        .put(index, normalised);
+            }
+            return this;
+        }
+
+        /** Returns the hue rotation in degrees for the given pet instance,
+         *  or {@code 0.0} if not set. */
+        public double getHue(String species, int index) {
+            if (species == null) return 0.0;
+            Map<Integer, Double> m = hueByPet.get(species.toLowerCase(java.util.Locale.ROOT));
+            if (m == null) return 0.0;
+            Double v = m.get(index);
+            return v == null ? 0.0 : v;
+        }
+
+        /** Internal: snapshot of the hue map, keyed by composite
+         *  {@code "species#index"} string for direct lookup by
+         *  {@link PetSupervisor}. */
+        Map<String, Double> hueByKey() {
+            Map<String, Double> out = new LinkedHashMap<>();
+            for (Map.Entry<String, Map<Integer, Double>> e : hueByPet.entrySet()) {
+                String species = e.getKey();
+                for (Map.Entry<Integer, Double> ie : e.getValue().entrySet()) {
+                    out.put(species + "#" + ie.getKey(), ie.getValue());
+                }
+            }
+            return out;
         }
 
         public DesktopPetsConfig setPetSize(int size) {
@@ -273,7 +328,7 @@ public final class DesktopPetsApi {
     private static void applyLocked(DesktopPetsConfig cfg) {
         supervisor.setPetSize(cfg.getPetSize());
         supervisor.setActivityLevel(cfg.getActivity());
-        supervisor.reconcileCounts(new LinkedHashMap<>(cfg.getCounts()));
+        supervisor.reconcileCounts(new LinkedHashMap<>(cfg.getCounts()), cfg.hueByKey());
         if (cfg.isVisitorBirdsEnabled() && !visitorBirdsStarted) {
             // BirdVisitor.start() registers timers; calling it twice would
             // schedule duplicate visitors, hence the guard.

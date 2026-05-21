@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Speech bubble with three dots, indicating conversation -->
+  <path d="M3 4 H21 Q23 4 23 6 V14 Q23 16 21 16 H13 L9 21 L9 16 H3 Q1 16 1 14 V6 Q1 4 3 4 Z"
+        fill="#ffffff" stroke="#3a3a3a" stroke-width="1.4" stroke-linejoin="round"/>
+  <circle cx="7"  cy="10" r="1.6" fill="#3a3a3a"/>
+  <circle cx="12" cy="10" r="1.6" fill="#3a3a3a"/>
+  <circle cx="17" cy="10" r="1.6" fill="#3a3a3a"/>
+</svg>

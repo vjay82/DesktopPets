@@ -61,6 +61,15 @@ public final class Personality {
                 .bias("high-perch-leap", 1.0)
                 .bias("grooming", 1.0)
                 .bias("knock-something-off", 1.0)
+                // Pet-pet biases (aloof cat: less social, more competitive).
+                .bias("converse", 0.7)
+                .bias("join-dance", 0.6)
+                .bias("startle", 1.3)
+                .bias("nap-together", 1.2)
+                .bias("follow-leader", 0.6)
+                .bias("staring-contest", 1.4)
+                .bias("share-food", 0.7)
+                .bias("comfort-huddle", 0.9)
                 // Dog/Bird/Ducky-only activities — disabled.
                 .bias("fetch-cursor", 0.0)
                 .bias("greet-foreground", 0.0)
@@ -92,6 +101,15 @@ public final class Personality {
                 .bias("fetch-cursor", 1.0)
                 .bias("greet-foreground", 1.0)
                 .bias("dig", 1.0)
+                // Pet-pet biases (friendly dog: very social).
+                .bias("converse", 1.4)
+                .bias("join-dance", 1.5)
+                .bias("startle", 1.0)
+                .bias("nap-together", 1.0)
+                .bias("follow-leader", 1.4)
+                .bias("staring-contest", 0.5)
+                .bias("share-food", 1.3)
+                .bias("comfort-huddle", 1.2)
                 // Activities Dog does NOT do.
                 .bias("stalk-pointer", 0.0)
                 .bias("high-perch-leap", 0.0)
@@ -125,6 +143,15 @@ public final class Personality {
                 .bias("crouch-pout", 1.0)
                 .bias("quack-combo", 1.0)
                 .bias("follow-cursor", 1.0)
+                // Pet-pet biases (needy duck: clingy and seeks comfort).
+                .bias("converse", 1.3)
+                .bias("join-dance", 1.0)
+                .bias("startle", 0.4)
+                .bias("nap-together", 1.4)
+                .bias("follow-leader", 1.3)
+                .bias("staring-contest", 0.6)
+                .bias("share-food", 1.2)
+                .bias("comfort-huddle", 1.6)
                 // Activities Ducky does NOT do.
                 .bias("stalk-pointer", 0.0)
                 .bias("high-perch-leap", 0.0)

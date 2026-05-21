@@ -44,8 +44,17 @@ final class SmokeTest {
         for (int i = 0; i < 24; i++) {
             assertNotNull(Doodle.icon("heart/" + i, 32));
         }
-        for (String prop : new String[]{"ball", "food", "zzz", "tray"}) {
-            assertNotNull(Doodle.icon("prop/" + prop, 32));
+        for (String prop : new String[]{"ball", "food", "zzz", "tray",
+                                          "bone", "fish", "seed"}) {
+            assertNotNull(Doodle.icon("prop/" + prop, 32),
+                    "prop/" + prop + " produced null");
+        }
+        for (String emo : new String[]{"sparkle", "note", "bang", "paw", "drop",
+                                          "mini-heart", "target", "question",
+                                          "zzz", "moon", "lick", "think-food",
+                                          "think-water", "chomp", "chat", "vs"}) {
+            assertNotNull(Doodle.icon("emote/" + emo, 32),
+                    "emote/" + emo + " produced null");
         }
     }
 
@@ -89,6 +98,35 @@ final class SmokeTest {
         for (Activity a : Activities.ALL) {
             assertNotNull(a.name());
             assertFalse(a.name().isEmpty());
+        }
+    }
+
+    @Test
+    void allActivityNamesUnique() {
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (Activity a : Activities.ALL) {
+            assertTrue(seen.add(a.name()), "duplicate activity name: " + a.name());
+        }
+    }
+
+    @Test
+    void newPetPetInteractionsAreRegistered() {
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (Activity a : Activities.ALL) names.add(a.name());
+        for (String n : new String[]{"converse", "join-dance", "startle",
+                                       "nap-together", "follow-leader",
+                                       "staring-contest", "share-food",
+                                       "comfort-huddle"}) {
+            assertTrue(names.contains(n), "missing activity: " + n);
+        }
+    }
+
+    @Test
+    void perSpeciesFoodPropResolves() {
+        // Each species' food prop key must resolve to an SVG path.
+        for (String key : new String[]{"prop/food", "prop/fish",
+                                          "prop/bone", "prop/seed"}) {
+            assertNotNull(Doodle.resolve(key), key + " unresolved");
         }
     }
 

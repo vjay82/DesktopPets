@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Two crossed swords / duel marker for a staring contest -->
+  <g stroke="#3a3a3a" stroke-width="1.6" stroke-linecap="round">
+    <line x1="4"  y1="4"  x2="20" y2="20" stroke="#d83a3a"/>
+    <line x1="20" y1="4"  x2="4"  y2="20" stroke="#3a6acc"/>
+  </g>
+  <!-- center spark -->
+  <circle cx="12" cy="12" r="3" fill="#ffd84d" stroke="#3a3a3a" stroke-width="1.2"/>
+  <circle cx="12" cy="12" r="1" fill="#fff"/>
+</svg>

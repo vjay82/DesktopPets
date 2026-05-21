@@ -95,6 +95,16 @@ public abstract class Pet implements Runnable {
     private static final double HOVER_GAIN_AMOUNT = 30.0;
 
     /**
+     * Name of the activity this pet is currently performing (set by
+     * {@link BehaviorEngine} just before calling {@link Activity#perform}
+     * and cleared back to {@code ""} once the activity returns). Read by
+     * sibling pets' activity priority/action lambdas to coordinate
+     * interactions like JOIN_DANCE without poking at engine internals.
+     * Volatile so cross-thread reads see the latest value.
+     */
+    public volatile String currentActivityName = "";
+
+    /**
      * Set by {@link PetSupervisor} (via {@link #setPaused(boolean)}) to gate
      * animation between frames. Read directly is fine; mutate via the helper
      * so paused threads waiting in {@link #interrupted()} get woken on resume.
@@ -115,6 +125,28 @@ public abstract class Pet implements Runnable {
 
     /** 0 = lethargic, 1 = normal, 2 = hyperactive. Read by {@link BehaviorEngine}. */
     public volatile double activityLevel = 1.0;
+
+    /**
+     * Hue rotation in degrees [0, 360) applied to every sprite frame this
+     * pet renders, so visually-identical instances of the same species can
+     * be distinguished at a glance. {@code 0.0} disables tinting (the
+     * sprite is shown in its natural colours). Set once by
+     * {@link PetSupervisor} just after construction, before the behaviour
+     * thread starts; subsequent settings-driven changes recreate the pet.
+     */
+    public volatile double hueShift;
+
+    /**
+     * Apply a doodle sprite key to {@link #petLabel} using this pet's
+     * {@link #hueShift}. Single funnel so call sites don't need to repeat
+     * the hue parameter. Non-pet labels ({@link #heartLabel},
+     * {@link #propLabel}, {@link #emoteLabel}, {@link #speechLabel}) keep
+     * using {@link Sprites#apply(JLabel, String)} directly so their
+     * emote/heart/prop graphics stay in their canonical colours.
+     */
+    protected final void applySprite(String key) {
+        Sprites.apply(petLabel, key, hueShift);
+    }
 
     private Thread heartThread = new Thread();
     private MouseListener mouseListener;
@@ -288,13 +320,13 @@ public abstract class Pet implements Runnable {
         String contact = cycle.get(Math.min(n - 1, n / 2 + 1));
         String recover = cycle.get(0);
         long slice = Math.max(40L, totalMs / 3);
-        Sprites.apply(petLabel, windup);
+        applySprite(windup);
         sleepInterruptible(slice);
         if (interrupted()) return;
-        Sprites.apply(petLabel, contact);
+        applySprite(contact);
         sleepInterruptible(slice);
         if (interrupted()) return;
-        Sprites.apply(petLabel, recover);
+        applySprite(recover);
         sleepInterruptible(slice);
     }
 
@@ -487,7 +519,7 @@ public abstract class Pet implements Runnable {
         long until = System.currentTimeMillis() + Math.max(0L, durationMs);
         reactionRef.set(new ReactionState(r, until, sourceX));
         if (r == Reaction.DUCK) {
-            Sprites.apply(petLabel, doodleKind() + "/sit");
+            applySprite(doodleKind() + "/sit");
         }
     }
 
@@ -513,7 +545,7 @@ public abstract class Pet implements Runnable {
      * another pet extends the reaction mid-sleep we loop and keep holding.
      */
     public final void holdDuck() {
-        Sprites.apply(petLabel, doodleKind() + "/sit");
+        applySprite(doodleKind() + "/sit");
         ReactionState s = reactionRef.get();
         while (s.kind() == Reaction.DUCK) {
             long remaining = s.untilMs() - System.currentTimeMillis();
@@ -689,9 +721,9 @@ public abstract class Pet implements Runnable {
             } else if (r == 1) {
                 idle();
             } else {
-                Sprites.apply(petLabel, doodleKind() + "/look/0");
+                applySprite(doodleKind() + "/look/0");
                 sleepInterruptible(700L);
-                Sprites.apply(petLabel, doodleKind() + "/look/1");
+                applySprite(doodleKind() + "/look/1");
                 sleepInterruptible(700L);
             }
             if (System.currentTimeMillis() >= nextChirpAt) {
@@ -735,7 +767,7 @@ public abstract class Pet implements Runnable {
         // ball-knockable) Doodle's per-species default falls back to
         // that species' idle frame, which still reads as "limp" while
         // the body drops since the sprite doesn't animate.
-        Sprites.apply(petLabel, doodleKind() + "/hit");
+        applySprite(doodleKind() + "/hit");
         int targetY = mon.y + mon.height + petSize;
         double y = start.y;
         double vy = 0.0;
@@ -911,7 +943,7 @@ public abstract class Pet implements Runnable {
         int offBottom = mon.y + mon.height + petH;
         while (!Thread.currentThread().isInterrupted()) {
             if ((stepsTaken % 4) == 0 && !frames.isEmpty()) {
-                Sprites.apply(petLabel, frames.get(spriteIndex % frames.size()));
+                applySprite(frames.get(spriteIndex % frames.size()));
                 spriteIndex++;
             }
             x += signed;
@@ -1111,7 +1143,7 @@ public abstract class Pet implements Runnable {
 
     private void initOnEdt() throws InterruptedException, InvocationTargetException {
         Runnable build = () -> {
-            ImageIcon favIcon = Sprites.scaled(doodleKind() + "/idle/0", 32, 32);
+            ImageIcon favIcon = Sprites.scaled(doodleKind() + "/idle/0", 32, 32, hueShift);
 
             frame = new JFrame();
             frame.setSize(petSize, petSize);
@@ -1219,7 +1251,7 @@ public abstract class Pet implements Runnable {
 
             // Force an immediate first frame so the pet is visible without
             // waiting for the behavior loop to tick once.
-            Sprites.apply(petLabel, idleFrames().get(0));
+            applySprite(idleFrames().get(0));
 
             Log.info("pet:" + name,
                     "spawned size=" + petSize
@@ -1516,7 +1548,7 @@ public abstract class Pet implements Runnable {
             Point clampedLoc = clampToScreen(loc);
             // Re-route through moveFrameTo so clipping/intendedX still apply.
             moveFrameTo(clampedLoc.x, clampedLoc.y);
-            Sprites.apply(petLabel, idleFrames().get(0));
+            applySprite(idleFrames().get(0));
             frame.revalidate();
             frame.repaint();
         });
@@ -1532,48 +1564,68 @@ public abstract class Pet implements Runnable {
 
     /** Pet sits in place for a longer hold; calming idle variant. */
     public void sit() {
-        Sprites.apply(petLabel, doodleKind() + "/sit");
+        applySprite(doodleKind() + "/sit");
         sleepInterruptible(SIT_HOLD_MS);
     }
 
     /** Pet stretches â€” distinct silhouette for a beat then resumes. */
     public void stretch() {
-        Sprites.apply(petLabel, doodleKind() + "/stretch");
+        applySprite(doodleKind() + "/stretch");
         sleepInterruptible(STRETCH_HOLD_MS);
     }
 
     /** Pet looks left, then right. */
     public void lookAround() {
-        Sprites.apply(petLabel, doodleKind() + "/look/0");
+        applySprite(doodleKind() + "/look/0");
         sleepInterruptible(LOOK_HOLD_MS);
         if (interrupted() || hovered || clicked.get()) {
             return;
         }
-        Sprites.apply(petLabel, doodleKind() + "/look/1");
+        applySprite(doodleKind() + "/look/1");
         sleepInterruptible(LOOK_HOLD_MS);
     }
 
     /** Pet sleeps in place; fully restores ENERGY and shows a Z-Z-Z overlay. */
     public void sleep() {
         showProp("prop/zzz");
-        Sprites.apply(petLabel, doodleKind() + "/sleep");
+        applySprite(doodleKind() + "/sleep");
         sleepInterruptible(SLEEP_HOLD_MS);
         needs.add(Need.ENERGY, 100);
         clearProp();
     }
 
     /**
-     * Pet eats in place; fully restores HUNGER and shows a food-bowl overlay.
-     * Telegraphs the action first by showing a {@code think-food} thought
-     * bubble above the pet for ~1 s so the user sees the hunger spike
-     * register rather than the bowl appearing out of nowhere.
+     * Per-species food prop key shown by {@link #eat()}. Default is the
+     * generic kibble bowl ({@code "prop/food"}); subclasses can override
+     * to surface species-flavoured props (Cat→fish, Dog→bone, Ducky→seed).
+     */
+    protected String foodPropKey() {
+        return "prop/food";
+    }
+
+    /**
+     * Pet eats in place; fully restores HUNGER and shows a species-specific
+     * food overlay (see {@link #foodPropKey()}). Telegraphs the action first
+     * by showing a {@code think-food} thought bubble above the pet for ~1 s
+     * so the user sees the hunger spike register rather than the food
+     * appearing out of nowhere. During the meal the pet shows two {@code
+     * chomp} emotes ~700 ms apart so it reads as actively eating rather
+     * than just standing over the bowl.
      */
     public void eat() {
         showEmote("think-food", 1000);
         if (interrupted() || hovered || clicked.get()) return;
-        showProp("prop/food");
-        playFrames(petLabel, idleFrames(), IDLE_FRAME_MS);
-        sleepInterruptible(EAT_HOLD_MS);
+        showProp(foodPropKey());
+        // Chew cycle: alternate idle-frame play with a chomp emote so the
+        // pet visibly works at the food. EAT_HOLD_MS is the original total
+        // hold; we split it evenly across two chomps with idle frames in
+        // between so the visual cadence reads as bite/chew/bite/chew.
+        long bite = Math.max(400L, EAT_HOLD_MS / 3);
+        for (int i = 0; i < 2; i++) {
+            if (interrupted() || hovered || clicked.get()) break;
+            playFrames(petLabel, idleFrames(), IDLE_FRAME_MS);
+            showEmote("chomp", bite);
+        }
         needs.add(Need.HUNGER, 100);
         clearProp();
     }
@@ -1613,7 +1665,7 @@ public abstract class Pet implements Runnable {
             List<String> dir = (c % 2 == 0) ? r : l;
             for (String f : dir) {
                 if (interrupted()) { idle(); return; }
-                Sprites.apply(petLabel, f);
+                applySprite(f);
                 sleepInterruptible(55);
             }
         }
@@ -1681,7 +1733,7 @@ public abstract class Pet implements Runnable {
                 idle();
                 return;
             }
-            Sprites.apply(petLabel, doodleKind() + "/look/" + i);
+            applySprite(doodleKind() + "/look/" + i);
             sleepInterruptible(550);
         }
         idle();
@@ -1868,8 +1920,7 @@ public abstract class Pet implements Runnable {
                     (dx > 0 && ball.vx() > 0) || (dx < 0 && ball.vx() < 0);
             if (ballMovingAway && !ball.isAtRest()) {
                 // Ball is fleeing â€” let it; just face it and pause briefly.
-                Sprites.apply(petLabel,
-                        (dx >= 0 ? walkRightFrames() : walkLeftFrames()).get(0));
+                applySprite((dx >= 0 ? walkRightFrames() : walkLeftFrames()).get(0));
                 sleepInterruptible(120);
                 return;
             }
@@ -1888,8 +1939,7 @@ public abstract class Pet implements Runnable {
                 Rectangle mon = currentMonitorBounds();
                 kickRight = (ballMid - mon.x) < (mon.x + mon.width - ballMid);
             }
-            Sprites.apply(petLabel,
-                    (kickRight ? walkRightFrames() : walkLeftFrames()).get(0));
+            applySprite((kickRight ? walkRightFrames() : walkLeftFrames()).get(0));
             showEmote("paw", 180);
             double impulse = (kickRight ? 1 : -1)
                     * (600 + ThreadLocalRandom.current().nextDouble(0, 500));
@@ -1970,7 +2020,7 @@ public abstract class Pet implements Runnable {
                 break;
             }
             if ((i - 1) % pps == 0) {
-                Sprites.apply(petLabel, frames.get(spriteIndex % frames.size()));
+                applySprite(frames.get(spriteIndex % frames.size()));
                 spriteIndex++;
             }
             int signedStep = goingRight ? i : -i;
@@ -2009,9 +2059,12 @@ public abstract class Pet implements Runnable {
     }
 
     public final void playFrames(JLabel label, List<String> frames, int frameMs) {
+        // Only the pet's body sprite is hue-rotated; emote / heart / prop
+        // labels keep their canonical colours so e.g. red hearts stay red.
+        double hue = (label == petLabel) ? hueShift : 0.0;
         for (String f : frames) {
             if (interrupted()) return;
-            Sprites.apply(label, f);
+            Sprites.apply(label, f, hue);
             sleepInterruptible(frameMs);
         }
     }
@@ -2622,7 +2675,7 @@ public abstract class Pet implements Runnable {
                 break;
             }
             if ((i - 1) % pps == 0) {
-                Sprites.apply(petLabel, frames.get(spriteIndex % frames.size()));
+                applySprite(frames.get(spriteIndex % frames.size()));
                 spriteIndex++;
             }
             int signedStep = goingRight ? i : -i;
@@ -2789,7 +2842,7 @@ public abstract class Pet implements Runnable {
         }
         try {
             String first = idleFrames().get(0);
-            onEdt(() -> Sprites.apply(petLabel, first));
+            onEdt(() -> applySprite(first));
         } catch (Throwable t) {
             // ignore - sprite refresh is best-effort
         }
@@ -3011,7 +3064,7 @@ public abstract class Pet implements Runnable {
 
     /** Hold the {@code sit} sprite for {@code holdMs} as a "crouch/pout" pose. */
     public final void crouchPose(long holdMs) {
-        Sprites.apply(petLabel, doodleKind() + "/sit");
+        applySprite(doodleKind() + "/sit");
         showEmote("drop", holdMs);
     }
 
@@ -3046,10 +3099,10 @@ public abstract class Pet implements Runnable {
         int i = 0;
         List<String> frames = idleFrames();
         while (System.currentTimeMillis() < until && !interrupted()) {
-            Sprites.apply(petLabel, frames.get(i++ % frames.size()));
+            applySprite(frames.get(i++ % frames.size()));
             sleepInterruptible(frameDelay);
         }
-        Sprites.apply(petLabel, frames.get(0));
+        applySprite(frames.get(0));
         Sprites.apply(emoteLabel, null);
         needs.add(Need.BOREDOM, 25);
     }
@@ -3234,9 +3287,9 @@ public abstract class Pet implements Runnable {
     public final void dig() {
         Sprites.apply(emoteLabel, "emote/paw");
         for (int i = 0; i < 3 && !interrupted(); i++) {
-            Sprites.apply(petLabel, doodleKind() + "/sit");
+            applySprite(doodleKind() + "/sit");
             sleepInterruptible(250);
-            Sprites.apply(petLabel, doodleKind() + "/look/0");
+            applySprite(doodleKind() + "/look/0");
             sleepInterruptible(180);
         }
         Sprites.apply(emoteLabel, null);
@@ -3254,16 +3307,16 @@ public abstract class Pet implements Runnable {
      */
     public final void scratch() {
         Sprites.apply(emoteLabel, "emote/paw");
-        Sprites.apply(petLabel, doodleKind() + "/sit");
+        applySprite(doodleKind() + "/sit");
         sleepInterruptible(220);
         for (int i = 0; i < 4 && !interrupted(); i++) {
-            Sprites.apply(petLabel, doodleKind() + "/scratch");
+            applySprite(doodleKind() + "/scratch");
             sleepInterruptible(180);
-            Sprites.apply(petLabel, doodleKind() + "/look/1");
+            applySprite(doodleKind() + "/look/1");
             sleepInterruptible(140);
         }
         if (!interrupted()) {
-            Sprites.apply(petLabel, doodleKind() + "/sit");
+            applySprite(doodleKind() + "/sit");
             sleepInterruptible(180);
         }
         Sprites.apply(emoteLabel, null);
@@ -3283,12 +3336,12 @@ public abstract class Pet implements Runnable {
     public final void dance() {
         Sprites.apply(emoteLabel, "emote/note");
         for (int i = 0; i < 18 && !interrupted(); i++) {
-            Sprites.apply(petLabel, doodleKind() + "/dance/" + i);
+            applySprite(doodleKind() + "/dance/" + i);
             sleepInterruptible(180);
         }
         Sprites.apply(emoteLabel, null);
         if (!interrupted()) {
-            Sprites.apply(petLabel, doodleKind() + "/sit");
+            applySprite(doodleKind() + "/sit");
             sleepInterruptible(150);
         }
         needs.add(Need.BOREDOM, 30);
@@ -3299,9 +3352,9 @@ public abstract class Pet implements Runnable {
     public final void wave() {
         Sprites.apply(emoteLabel, "emote/mini-heart");
         for (int i = 0; i < 2 && !interrupted(); i++) {
-            Sprites.apply(petLabel, doodleKind() + "/stretch");
+            applySprite(doodleKind() + "/stretch");
             sleepInterruptible(220);
-            Sprites.apply(petLabel, doodleKind() + "/idle/0");
+            applySprite(doodleKind() + "/idle/0");
             sleepInterruptible(120);
         }
         Sprites.apply(emoteLabel, null);
@@ -3315,10 +3368,10 @@ public abstract class Pet implements Runnable {
     public final void leftRightCombo() {
         Sprites.apply(emoteLabel, "emote/note");
         for (int i = 0; i < 4 && !interrupted(); i++) {
-            Sprites.apply(petLabel, doodleKind() + "/look/" + (i % 2));
+            applySprite(doodleKind() + "/look/" + (i % 2));
             sleepInterruptible(220);
         }
-        Sprites.apply(petLabel, doodleKind() + "/idle/0");
+        applySprite(doodleKind() + "/idle/0");
         needs.add(Need.BOREDOM, 15);
     }
 

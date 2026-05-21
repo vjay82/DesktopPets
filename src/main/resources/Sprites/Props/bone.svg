@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <ellipse cx="50" cy="82" rx="32" ry="5" fill="#000" opacity="0.22"/>
+  <!-- bone body + four knobs -->
+  <g fill="#f5ecd0" stroke="#7a6a3a" stroke-width="2.5" stroke-linejoin="round">
+    <rect x="22" y="50" width="56" height="14" rx="6"/>
+    <circle cx="22" cy="48" r="10"/>
+    <circle cx="22" cy="66" r="10"/>
+    <circle cx="78" cy="48" r="10"/>
+    <circle cx="78" cy="66" r="10"/>
+  </g>
+  <!-- highlight -->
+  <rect x="28" y="53" width="42" height="3" rx="1.5" fill="#fffaea" opacity="0.85"/>
+</svg>

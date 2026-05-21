@@ -9,6 +9,9 @@ public final class Cat extends Pet {
 
     @Override protected String doodleKind() { return "cat"; }
 
+    /** Cats eat fish. */
+    @Override protected String foodPropKey() { return "prop/fish"; }
+
     @Override public String[] sounds() {
         return new String[] { "Meow", "Mrrow!", "Purrr", "Mrrr...", "Nya~" };
     }

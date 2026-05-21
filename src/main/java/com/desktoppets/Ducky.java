@@ -9,6 +9,9 @@ public final class Ducky extends Pet {
 
     @Override protected String doodleKind() { return "ducky"; }
 
+    /** Duckies peck at seeds. */
+    @Override protected String foodPropKey() { return "prop/seed"; }
+
     @Override public String[] sounds() {
         return new String[] { "Quack!", "Quack quack", "Honk!", "Squeak!" };
     }

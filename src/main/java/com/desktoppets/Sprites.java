@@ -51,6 +51,16 @@ final class Sprites {
      * dispatched on the EDT.
      */
     static void apply(JLabel label, String key) {
+        apply(label, key, 0.0);
+    }
+
+    /**
+     * Same as {@link #apply(JLabel, String)} but with a hue rotation applied
+     * to the rasterised sprite (doodle keys only; non-doodle PNG sprites
+     * are served untinted). {@code hueDegrees == 0} short-circuits to the
+     * plain icon path.
+     */
+    static void apply(JLabel label, String key, double hueDegrees) {
         int w = label.getWidth();
         int h = label.getHeight();
         if (key == null || key.isEmpty() || w <= 0 || h <= 0) {
@@ -60,7 +70,7 @@ final class Sprites {
         if (Doodle.isDoodleKey(key)) {
             // Doodle assumes square icons; use the smaller dimension.
             int s = Math.min(w, h);
-            ImageIcon di = Doodle.icon(key, s);
+            ImageIcon di = Doodle.icon(key, s, hueDegrees);
             onEdt(() -> label.setIcon(di));
             return;
         }
@@ -73,8 +83,14 @@ final class Sprites {
 
     /** Eagerly produce a scaled icon (e.g. for tray icon use). */
     static ImageIcon scaled(String key, int w, int h) {
+        return scaled(key, w, h, 0.0);
+    }
+
+    /** Hue-rotating overload of {@link #scaled(String, int, int)}; applies
+     *  to doodle keys only. */
+    static ImageIcon scaled(String key, int w, int h, double hueDegrees) {
         if (Doodle.isDoodleKey(key)) {
-            return Doodle.icon(key, Math.min(w, h));
+            return Doodle.icon(key, Math.min(w, h), hueDegrees);
         }
         ImageIcon icon = SCALED_CACHE.computeIfAbsent(
                 new ScaledKey(key, w, h), k -> render(k.path, k.w, k.h));

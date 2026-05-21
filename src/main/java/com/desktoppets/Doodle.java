@@ -40,11 +40,28 @@ public final class Doodle {
     }
 
     public static ImageIcon icon(String key, int size) {
+        return icon(key, size, 0.0);
+    }
+
+    /**
+     * Same as {@link #icon(String, int)} but with a hue rotation applied to
+     * the rasterised pixels (alpha and per-pixel brightness/saturation are
+     * preserved). Used by tinted pets so a roster of e.g. 5 ducks shows up
+     * in 5 different dominant colours. {@code hueDegrees == 0} short-circuits
+     * to the untinted cache.
+     *
+     * <p>The hue is quantised to whole degrees for the cache key, so the
+     * tinted cache is bounded to at most 360 variants per (sprite, size).
+     */
+    public static ImageIcon icon(String key, int size, double hueDegrees) {
         if (size <= 0 || key == null || key.isEmpty()) {
             return null;
         }
         String normalized = key.startsWith(PREFIX) ? key.substring(PREFIX.length()) : key;
-        return CACHE.computeIfAbsent(new Key(normalized, size), Doodle::render);
+        // Normalise hue into [0, 360) and quantise to int degrees.
+        double n = ((hueDegrees % 360.0) + 360.0) % 360.0;
+        int hueQuant = (int) Math.round(n) % 360;
+        return CACHE.computeIfAbsent(new Key(normalized, size, hueQuant), Doodle::render);
     }
 
     static boolean isDoodleKey(String key) {
@@ -80,7 +97,42 @@ public final class Doodle {
         } finally {
             g.dispose();
         }
+        if (k.hueQuant != 0) {
+            applyHueRotation(img, k.hueQuant);
+        }
         return new ImageIcon(img);
+    }
+
+    /**
+     * Rotate the hue of every visible pixel in {@code img} by
+     * {@code degrees} (0..359). Alpha and per-pixel brightness/saturation
+     * are preserved. Fully-transparent pixels are skipped. Operates in
+     * place. Uses {@link java.awt.Color#RGBtoHSB} / {@code HSBtoRGB} which
+     * are the JDK standard hue-rotation helpers.
+     */
+    private static void applyHueRotation(BufferedImage img, int degrees) {
+        float hueOffset = (degrees % 360) / 360f;
+        int w = img.getWidth();
+        int h = img.getHeight();
+        float[] hsb = new float[3];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int argb = img.getRGB(x, y);
+                int alpha = (argb >>> 24) & 0xFF;
+                if (alpha == 0) continue; // fully transparent — leave as-is
+                int r = (argb >>> 16) & 0xFF;
+                int g = (argb >>> 8) & 0xFF;
+                int b = argb & 0xFF;
+                java.awt.Color.RGBtoHSB(r, g, b, hsb);
+                // Skip pure grays: rotating their hue is a no-op because
+                // saturation is 0; this also avoids tinting outline pixels
+                // that anti-aliasing emitted as neutral gray.
+                if (hsb[1] < 0.001f) continue;
+                hsb[0] = (hsb[0] + hueOffset) % 1f;
+                int rgb = java.awt.Color.HSBtoRGB(hsb[0], hsb[1], hsb[2]);
+                img.setRGB(x, y, (alpha << 24) | (rgb & 0x00FFFFFF));
+            }
+        }
     }
 
     private static ImageIcon blank(int size) {
@@ -141,6 +193,9 @@ public final class Doodle {
             case "lick":       return "Sprites/Emote/lick.svg";
             case "think-food": return "Sprites/Emote/think-food.svg";
             case "think-water":return "Sprites/Emote/think-water.svg";
+            case "chomp":      return "Sprites/Emote/chomp.svg";
+            case "chat":       return "Sprites/Emote/chat.svg";
+            case "vs":         return "Sprites/Emote/vs.svg";
             default:           return null;
         }
     }
@@ -266,6 +321,9 @@ public final class Doodle {
             case "water":return "Sprites/Props/water.svg";
             case "zzz":  return "Sprites/Props/zzz.svg";
             case "tray": return "Sprites/Props/tray.svg";
+            case "bone": return "Sprites/Props/bone.svg";
+            case "fish": return "Sprites/Props/fish.svg";
+            case "seed": return "Sprites/Props/seed.svg";
             default:     return null;
         }
     }
@@ -279,5 +337,5 @@ public final class Doodle {
         }
     }
 
-    private record Key(String key, int size) { }
+    private record Key(String key, int size, int hueQuant) { }
 }

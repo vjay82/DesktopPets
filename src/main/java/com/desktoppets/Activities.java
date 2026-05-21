@@ -720,6 +720,294 @@ public final class Activities {
             });
 
     /**
+     * Conversation: walk up to the nearest sibling, sit, and exchange three
+     * vocalisations in alternation (initiator → sibling → initiator). Each
+     * pet's {@code randomSound()} drives its own bubble; tails point at the
+     * other pet. Both pets show a small {@code chat} emote at the start so
+     * the visual reads as "they're talking". Reduces BOREDOM for both and
+     * boosts AFFECTION a touch.
+     */
+    public static final Activity CONVERSE = new Activity("converse",
+            (pet, _) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.45 : 0,
+            (pet, world) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < otherMid;
+                int targetX = fromLeft
+                        ? otherMid - other.effectiveWidth() / 2 - petW
+                        : otherMid + other.effectiveWidth() / 2;
+                pet.walkAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.sit();
+                if (pet.interrupted()) return;
+                pet.showEmote("chat", 600);
+                other.showEmote("chat", 600);
+                int otherMidX = other.logicalLocation().x + other.effectiveWidth() / 2;
+                int myMidX = pet.logicalLocation().x + pet.effectiveWidth() / 2;
+                for (int i = 0; i < 3; i++) {
+                    if (pet.interrupted()) return;
+                    if (i % 2 == 0) {
+                        pet.speak(pet.randomSound(), 900L, otherMidX);
+                    } else {
+                        other.speak(other.randomSound(), 900L, myMidX);
+                    }
+                    Pet.sleepInterruptible(150);
+                }
+                pet.needs.add(Need.BOREDOM, -15);
+                pet.needs.add(Need.AFFECTION, 10);
+                other.needs.add(Need.BOREDOM, -15);
+                other.needs.add(Need.AFFECTION, 10);
+            });
+
+    /**
+     * Joins a sibling that is currently performing the {@code dance}
+     * activity. Gated tightly on {@link Pet#currentActivityName} so it only
+     * fires while the party is actually happening — once the sibling
+     * finishes, this stops being eligible. Walks adjacent, plays the dance
+     * loop twice, and emits a {@code note} emote at the start. Big BOREDOM
+     * drop for the joiner so dance parties feel rewarding.
+     */
+    public static final Activity JOIN_DANCE = new Activity("join-dance",
+            (pet, _) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return 0;
+                return "dance".equals(other.currentActivityName) ? 1.2 : 0;
+            },
+            (pet, world) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < otherMid;
+                int targetX = fromLeft
+                        ? otherMid - other.effectiveWidth() / 2 - petW
+                        : otherMid + other.effectiveWidth() / 2;
+                pet.walkAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.showEmote("note", 500);
+                pet.dance();
+                if (pet.interrupted()) return;
+                pet.dance();
+                pet.needs.add(Need.BOREDOM, -25);
+                pet.needs.add(Need.AFFECTION, 10);
+            });
+
+    /**
+     * Sneaks up and startles a sibling: run to within one body-width, show
+     * {@code bang}, and request a brief {@code DUCK} reaction on the
+     * victim so their next tick consumes it (hold-sit pose). Self gets a
+     * BOREDOM drop; victim loses a little ENERGY (the jolt costs them).
+     * Gated by own ENERGY &gt; 50 so a tired pet doesn't startle siblings.
+     */
+    public static final Activity STARTLE = new Activity("startle",
+            (pet, _) -> {
+                if (pet.needs.get(Need.ENERGY) <= 50) return 0;
+                return pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.35 : 0;
+            },
+            (pet, world) -> {
+                Pet victim = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (victim == null) return;
+                int petW = pet.effectiveWidth();
+                int victimMid = victim.logicalLocation().x + victim.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < victimMid;
+                int targetX = fromLeft
+                        ? victimMid - victim.effectiveWidth() / 2 - petW
+                        : victimMid + victim.effectiveWidth() / 2;
+                pet.runAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                int hunterMid = pet.logicalLocation().x + petW / 2;
+                victim.requestReaction(Pet.Reaction.DUCK, 1200L, hunterMid);
+                pet.showEmote("bang", 600);
+                victim.showEmote("question", 600);
+                pet.needs.add(Need.BOREDOM, -15);
+                victim.needs.add(Need.ENERGY, -10);
+            });
+
+    /**
+     * Nap together: when own ENERGY is low and a sibling is nearby, walk
+     * adjacent and sleep side-by-side. Both pets visibly settle (sit then
+     * sleep frame) and gain full ENERGY back, plus a chunk of AFFECTION
+     * for the shared rest. The sibling's prop label is driven by us so
+     * their {@code zzz} appears in sync.
+     */
+    public static final Activity NAP_TOGETHER = new Activity("nap-together",
+            (pet, _) -> {
+                if (pet.nearestOtherPet(PET_PET_RADIUS) == null) return 0;
+                double e = pet.needs.get(Need.ENERGY);
+                return e < 60 ? 0.8 * (1.0 - e / 100.0) : 0;
+            },
+            (pet, world) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < otherMid;
+                int targetX = fromLeft
+                        ? otherMid - other.effectiveWidth() / 2 - petW
+                        : otherMid + other.effectiveWidth() / 2;
+                pet.walkAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.showEmote("moon", 700);
+                other.showEmote("moon", 700);
+                Pet.sleepInterruptible(700);
+                if (pet.interrupted()) return;
+                // Sibling's zzz prop appears in sync with our sleep().
+                other.showProp("prop/zzz");
+                pet.sleep();
+                other.clearProp();
+                other.needs.add(Need.ENERGY, 60);
+                pet.needs.add(Need.AFFECTION, 15);
+                other.needs.add(Need.AFFECTION, 15);
+            });
+
+    /**
+     * Follow-the-leader: pick the nearest sibling and trail roughly one
+     * body-width behind for ~6 seconds, resampling the sibling's column on
+     * every step. Cancels early if the sibling reaches a wall or this pet
+     * is interrupted. Small {@code paw} emote at the start to signal
+     * intent. Both pets get a BOREDOM drop.
+     */
+    public static final Activity FOLLOW_LEADER = new Activity("follow-leader",
+            (pet, _) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.3 : 0,
+            (pet, world) -> {
+                Pet leader = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (leader == null) return;
+                pet.showEmote("paw", 400);
+                int petW = pet.effectiveWidth();
+                long endAt = System.currentTimeMillis() + 6_000L;
+                while (System.currentTimeMillis() < endAt && !pet.interrupted()) {
+                    int leaderMid = leader.logicalLocation().x + leader.effectiveWidth() / 2;
+                    int myMid = pet.logicalLocation().x + petW / 2;
+                    int dir = (myMid < leaderMid) ? +1 : -1;
+                    // Trail one body-width behind on the leader's side.
+                    int targetX = leaderMid - dir * petW - petW / 2;
+                    java.awt.Rectangle mon = pet.currentMonitorBounds();
+                    targetX = Math.max(mon.x, Math.min(mon.x + mon.width - petW, targetX));
+                    pet.walkAlongFloor(world, targetX);
+                    Pet.sleepInterruptible(400);
+                }
+                pet.needs.add(Need.BOREDOM, -10);
+                leader.needs.add(Need.AFFECTION, 5);
+            });
+
+    /**
+     * Staring contest: both pets sit facing each other and stare. Both show
+     * a {@code vs} emote (1.8 s); then one is randomly chosen as the
+     * loser, who blinks first ({@code drop} emote) while the winner shows
+     * a {@code sparkle}. Loser loses a little AFFECTION, winner gains a
+     * little — a low-stakes gag.
+     */
+    public static final Activity STARING_CONTEST = new Activity("staring-contest",
+            (pet, _) -> pet.nearestOtherPet(PET_PET_RADIUS) != null ? 0.25 : 0,
+            (pet, world) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < otherMid;
+                int targetX = fromLeft
+                        ? otherMid - other.effectiveWidth() / 2 - petW
+                        : otherMid + other.effectiveWidth() / 2;
+                pet.walkAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.sit();
+                if (pet.interrupted()) return;
+                pet.showEmote("vs", 1000);
+                other.showEmote("vs", 1000);
+                Pet.sleepInterruptible(800);
+                if (pet.interrupted()) return;
+                boolean iLose = ThreadLocalRandom.current().nextBoolean();
+                if (iLose) {
+                    pet.showEmote("drop", 700);
+                    other.showEmote("sparkle", 700);
+                    pet.needs.add(Need.AFFECTION, -5);
+                    other.needs.add(Need.AFFECTION, 10);
+                } else {
+                    other.showEmote("drop", 700);
+                    pet.showEmote("sparkle", 700);
+                    other.needs.add(Need.AFFECTION, -5);
+                    pet.needs.add(Need.AFFECTION, 10);
+                }
+            });
+
+    /**
+     * Communal meal: when own HUNGER is low and a sibling is nearby, walk
+     * over and eat together — both pets show their species food prop and
+     * chomp emote in sync, both have HUNGER fully restored, and both gain
+     * AFFECTION from the shared meal. Distinct from {@link Activities#EAT}
+     * (solo) because the food prop appears on both labels and the visual
+     * reads as social.
+     */
+    public static final Activity SHARE_FOOD = new Activity("share-food",
+            (pet, _) -> {
+                if (pet.nearestOtherPet(PET_PET_RADIUS) == null) return 0;
+                double h = pet.needs.get(Need.HUNGER);
+                return h < 40 ? (40 - h) * 0.04 : 0;
+            },
+            (pet, world) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < otherMid;
+                int targetX = fromLeft
+                        ? otherMid - other.effectiveWidth() / 2 - petW
+                        : otherMid + other.effectiveWidth() / 2;
+                pet.walkAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.showEmote("think-food", 800);
+                other.showEmote("think-food", 800);
+                Pet.sleepInterruptible(600);
+                if (pet.interrupted()) return;
+                // Drive both food props directly so they share the meal.
+                other.showProp(other.foodPropKey());
+                pet.eat(); // shows own food prop + chomp cycle + restores HUNGER
+                other.clearProp();
+                other.needs.add(Need.HUNGER, 100);
+                pet.needs.add(Need.AFFECTION, 15);
+                other.needs.add(Need.AFFECTION, 15);
+            });
+
+    /**
+     * Comfort huddle: when this pet is in {@link Mood#DISTRESSED} and a
+     * sibling is within reach, walk over and sit beside them with three
+     * alternating {@code mini-heart} emotes — mutual comfort. High
+     * priority so a distressed pet seeks contact instead of pacing.
+     */
+    public static final Activity COMFORT_HUDDLE = new Activity("comfort-huddle",
+            (pet, _) -> {
+                if (Mood.from(pet.needs) != Mood.DISTRESSED) return 0;
+                return pet.nearestOtherPet(PET_PET_RADIUS) != null ? 1.5 : 0;
+            },
+            (pet, world) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < otherMid;
+                int targetX = fromLeft
+                        ? otherMid - other.effectiveWidth() / 2 - petW
+                        : otherMid + other.effectiveWidth() / 2;
+                pet.walkAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.sit();
+                for (int i = 0; i < 3; i++) {
+                    if (pet.interrupted()) return;
+                    if (i % 2 == 0) {
+                        pet.showEmote("mini-heart", 500);
+                    } else {
+                        other.showEmote("mini-heart", 500);
+                    }
+                    Pet.sleepInterruptible(400);
+                }
+                pet.needs.add(Need.AFFECTION, 20);
+                pet.needs.add(Need.BOREDOM, -10);
+                other.needs.add(Need.AFFECTION, 10);
+            });
+
+    /**
      * Silly solo gag: walk to the nearest left/right monitor edge, sit, and
      * lick the screen three times \u2014 the pet trying to clean the glass
      * from the inside. No new sprite required beyond {@code lick}.
@@ -837,7 +1125,10 @@ public final class Activities {
             SLEEP, EAT, DRINK, SEEK_PETTING, PLAY_BALL,
             STARTLE_FLUSH, GREET_FOREGROUND,
             STALK_POINTER, HUNT_CURSOR, FETCH_CURSOR, FOLLOW_CURSOR,
+            COMFORT_HUDDLE,
             GREET_PET, CHASE_PET, HUNT_PET, HUNT_BIRD, SNIFF, NUDGE, TAG, LICK_PET,
+            CONVERSE, JOIN_DANCE, STARTLE, NAP_TOGETHER,
+            FOLLOW_LEADER, STARING_CONTEST, SHARE_FOOD,
             DISAPPEAR_REAPPEAR, ZOOMIES, WANDER,
             HIGH_PERCH_LEAP, GROOMING, KNOCK_SOMETHING_OFF,
             FLIT, CIRCLE, PERCH_SING,

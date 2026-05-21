@@ -8,6 +8,9 @@ public final class Dog extends Pet {
     }
 
     @Override protected String doodleKind() { return "dog"; }
+
+    /** Dogs chew bones. */
+    @Override protected String foodPropKey() { return "prop/bone"; }
     @Override protected int walkStepDelayMs() { return 7; }
 
     @Override public String[] sounds() {

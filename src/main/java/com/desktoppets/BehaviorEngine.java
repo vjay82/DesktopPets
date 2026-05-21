@@ -137,7 +137,12 @@ public final class BehaviorEngine {
                     Log.info("engine:" + pet.name, "â†’ " + chosen.name());
                     lastChosenName = chosen.name();
                 }
-                chosen.perform(pet, world);
+                pet.currentActivityName = chosen.name();
+                try {
+                    chosen.perform(pet, world);
+                } finally {
+                    pet.currentActivityName = "";
+                }
                 noteCompleted(chosen);
             } else {
                 pet.idle();
@@ -285,6 +290,15 @@ public final class BehaviorEngine {
         m.put(Activities.SPEAK,              new CooldownRange( 45_000L,  75_000L)); // 45..120 s
         m.put(Activities.SCRATCH,            new CooldownRange( 60_000L,  90_000L)); // 60..150 s
         m.put(Activities.DANCE,              new CooldownRange(120_000L, 180_000L)); // 2..5 min
+        // New pet-pet interactions.
+        m.put(Activities.CONVERSE,           new CooldownRange( 60_000L, 120_000L)); // 60..180 s
+        m.put(Activities.JOIN_DANCE,         new CooldownRange( 60_000L, 120_000L)); // 60..180 s — opportunistic
+        m.put(Activities.STARTLE,            new CooldownRange( 90_000L, 120_000L)); // 90..210 s — easy to spam
+        m.put(Activities.NAP_TOGETHER,       new CooldownRange(120_000L, 180_000L)); // 2..5 min
+        m.put(Activities.FOLLOW_LEADER,      new CooldownRange( 60_000L, 120_000L)); // 60..180 s
+        m.put(Activities.STARING_CONTEST,    new CooldownRange( 90_000L, 150_000L)); // 90..240 s
+        m.put(Activities.SHARE_FOOD,         new CooldownRange( 90_000L, 120_000L)); // 90..210 s
+        m.put(Activities.COMFORT_HUDDLE,     new CooldownRange( 30_000L,  60_000L)); // 30..90 s — short so distressed pet can re-seek
         // MAKE_SPACE: very short — the grace timer in its priority lambda
         // already resists immediate re-arming. Span needs to be > 0 because
         // ThreadLocalRandom.nextLong(0, 0) would throw; previously this was

@@ -57,6 +57,10 @@ public final class PetSupervisor {
         reconcileCounts(counts);
     }
 
+    public void reconcileCounts(Map<String, Integer> wantedCounts) {
+        reconcileCounts(wantedCounts, Map.of());
+    }
+
     /**
      * Reconcile to a species->count mapping. Each species can have multiple
      * live instances; instances are keyed internally as {@code species#index}
@@ -65,8 +69,16 @@ public final class PetSupervisor {
      *
      * <p>Visitor-only species (currently {@code bird}) are silently dropped
      * the same way as in {@link #reconcile(List)}.
+     *
+     * <p>{@code hueByKey} (keyed by composite {@code "species#index"}, e.g.
+     * {@code "ducky#2"}) optionally assigns a per-pet hue rotation in
+     * degrees [0, 360). Hues are applied to NEW spawns only; live pets keep
+     * the hue they were created with. Missing / null entries mean "no
+     * tint" ({@code 0.0}).
      */
-    public void reconcileCounts(Map<String, Integer> wantedCounts) {
+    public void reconcileCounts(Map<String, Integer> wantedCounts,
+                                Map<String, Double> hueByKey) {
+        if (hueByKey == null) hueByKey = Map.of();
         // Build desired set of composite keys "<species>#<index>"
         Map<String, String> wantedKeyToSpecies = new HashMap<>();
         for (Map.Entry<String, Integer> e : wantedCounts.entrySet()) {
@@ -98,6 +110,8 @@ public final class PetSupervisor {
                     Pet pet = PetFactory.create(species);
                     pet.setPaused(paused);
                     pet.activityLevel = activityLevel;
+                    Double hue = hueByKey.get(key);
+                    pet.hueShift = hue == null ? 0.0 : hue;
                     pet.setSize(petSize);
                     Thread t = new Thread(pet, "pet-" + key);
                     t.setDaemon(true);
