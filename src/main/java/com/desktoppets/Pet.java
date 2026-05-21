@@ -1795,6 +1795,13 @@ public abstract class Pet implements Runnable {
             chaseBall(world, existing);
             return;
         }
+        // Honour the global post-play quiet period even when this method
+        // is invoked outside the normal Activities.PLAY_BALL priority
+        // gate (e.g. future direct callers / tests). Without an active
+        // ball to chase, just idle out the activity.
+        if (Ball.playCooldownRemainingMs() > 0) {
+            return;
+        }
 
         Rectangle mon = currentMonitorBounds();
         int petW = effectiveWidth();

@@ -43,6 +43,28 @@ public final class Ball {
 
     private static final AtomicReference<Ball> ACTIVE = new AtomicReference<>();
 
+    /**
+     * Wall-clock instant of the last {@link #dispose()} call across the
+     * whole process, used to gate {@link Activities#PLAY_BALL} via
+     * {@link #playCooldownRemainingMs()}. Zero means "never played yet".
+     *
+     * <p>Why a <i>global</i> (not per-pet) cooldown: PLAY_BALL is a
+     * world-level activity — once one pet kicks off a ball, every pet on
+     * the same monitor joins the scrum via {@link Pet#chaseBall}. The
+     * per-pet cooldown in {@link BehaviorEngine} therefore collapses with
+     * N pets (each rolls independently, so the wait between sessions
+     * shrinks to ~cooldown/N and the screen never gets a quiet gap).
+     * A global cooldown gives a guaranteed calm window between play
+     * sessions regardless of pet count.
+     */
+    private static final java.util.concurrent.atomic.AtomicLong LAST_FINISHED_MS =
+            new java.util.concurrent.atomic.AtomicLong(0L);
+
+    /** Global quiet period after a play session ends before another ball
+     *  may spawn. Refreshed every time a ball is disposed (i.e. each
+     *  finished play session restarts the 2-minute countdown). */
+    private static final long PLAY_COOLDOWN_MS = 120_000L;
+
     /** Pets notice the ball within this many logical pixels horizontally. */
     public static final int INTEREST_RADIUS = 1400;
 
@@ -109,10 +131,32 @@ public final class Ball {
     private volatile double vx = 0;
     private final Object vxLock = new Object();
     private volatile boolean disposed = false;
+    /** True once the play session has ended and the ball is in its
+     *  "roll off the nearest monitor edge and fall away" wind-down
+     *  animation. While {@code ending} is set: {@link #active()} returns
+     *  {@code null} so pets stop chasing, {@link #kick(double)} and
+     *  {@link #noteInterest()} are no-ops, wall-bounce is disabled so the
+     *  ball can leave the monitor, and the floor snap stops applying once
+     *  the ball is past the monitor's horizontal bounds so gravity can
+     *  pull it off-screen. The ball is finally disposed when it's fully
+     *  off-screen (or a hard timeout fires as a failsafe). */
+    private volatile boolean ending = false;
+    private volatile long endingStartedAtMs = 0L;
     private volatile long lastInterestMs;
     private volatile long lastKickMs = 0L;
     /** Wall-clock spawn time, used by MAX_LIFETIME_MS / INTEREST_FREEZE_AFTER_MS. */
     private final long spawnedAtMs = System.currentTimeMillis();
+
+    /** Minimum |vx| (px/s) we'll seed at the start of the ending phase so
+     *  the ball actually reaches and crosses the nearest monitor edge
+     *  within the failsafe timeout, even if it was at rest. */
+    private static final double END_ROLL_SPEED = 520.0;
+    /** Hard cap on the ending wind-down phase. If the ball somehow gets
+     *  wedged (e.g. floor at monitor edge climbs above the ball), force
+     *  dispose after this long so the play session can't be stuck open
+     *  visually even though LAST_FINISHED_MS already started the
+     *  cooldown. */
+    private static final long END_PHASE_TIMEOUT_MS = 6_000L;
 
     private JFrame frame;
     private JLabel label;
@@ -167,10 +211,15 @@ public final class Ball {
         return b;
     }
 
-    /** The currently-active ball, or {@code null} if none exists / it was disposed. */
+    /** The currently-active ball, or {@code null} if none exists, it was
+     *  disposed, or the play session has ended and the ball is in its
+     *  roll-off-edge wind-down (see {@link #ending}). Pets check this
+     *  every behaviour tick to decide whether to chase, so flipping to
+     *  {@code null} during the wind-down makes the scrum break up
+     *  immediately and the ball visibly rolls away alone. */
     public static Ball active() {
         Ball b = ACTIVE.get();
-        return (b != null && !b.disposed) ? b : null;
+        return (b != null && !b.disposed && !b.ending) ? b : null;
     }
 
     public int width()          { return sizePx; }
@@ -193,6 +242,9 @@ public final class Ball {
      * timer every behaviour tick) can't perpetuate the scrum forever.
      */
     public void noteInterest() {
+        if (ending) {
+            return;
+        }
         if (System.currentTimeMillis() - spawnedAtMs >= INTEREST_FREEZE_AFTER_MS) {
             return;
         }
@@ -207,6 +259,9 @@ public final class Ball {
      * and stomp on its own kick.
      */
     public void kick(double impulse) {
+        if (ending) {
+            return;
+        }
         long now = System.currentTimeMillis();
         if (now - lastKickMs < KICK_COOLDOWN_MS) {
             return;
@@ -225,13 +280,61 @@ public final class Ball {
         noteInterest();
     }
 
-    /** Dispose the ball window and clear the global slot. Idempotent. */
+    /**
+     * Begin the visible end-of-session wind-down: roll the ball off the
+     * nearest monitor edge so it falls out of view, then dispose when
+     * it's fully off-screen. Idempotent. Pets immediately stop chasing
+     * (see {@link #active()}) so the rolling ball can escape without
+     * being re-kicked.
+     *
+     * <p>Refreshes {@link #LAST_FINISHED_MS} <i>now</i> (not at final
+     * dispose) so the global {@link #PLAY_COOLDOWN_MS} starts ticking
+     * at the moment of decision — otherwise pets could potentially roll
+     * PLAY_BALL again the moment the rolling ball cleared the screen,
+     * which would visually overlap two play sessions.
+     */
+    public void beginEndPlay() {
+        if (ending || disposed) {
+            return;
+        }
+        ending = true;
+        endingStartedAtMs = System.currentTimeMillis();
+        LAST_FINISHED_MS.set(endingStartedAtMs);
+
+        // Pick the exit direction: kick toward the NEAREST monitor edge so
+        // the wind-down is short. If the ball is already moving with
+        // enough speed, just preserve its direction and let physics carry
+        // it off (looks like the last kick simply rolled out of bounds).
+        int centerX = (int) xLogical + sizePx / 2;
+        boolean exitRight = (monitor.x + monitor.width - centerX) <
+                            (centerX - monitor.x);
+        synchronized (vxLock) {
+            if (Math.abs(vx) >= END_ROLL_SPEED) {
+                // Keep current direction & speed; physics already takes
+                // it toward (or past) an edge.
+                return;
+            }
+            double dir = (Math.abs(vx) >= REST_THRESHOLD)
+                    ? Math.signum(vx)
+                    : (exitRight ? 1.0 : -1.0);
+            vx = dir * END_ROLL_SPEED;
+        }
+    }
+
+    /** Dispose the ball window and clear the global slot. Idempotent.
+     *
+     *  <p>Also refreshes {@link #LAST_FINISHED_MS} as a safety net for
+     *  callers that dispose the ball directly without going through
+     *  {@link #beginEndPlay()} (e.g. the constructor failure path or a
+     *  pre-emptive replace in {@link #spawn}); the normal
+     *  end-of-session path stamps it earlier in {@code beginEndPlay}. */
     public void dispose() {
         if (disposed) {
             return;
         }
         disposed = true;
         ACTIVE.compareAndSet(this, null);
+        LAST_FINISHED_MS.set(System.currentTimeMillis());
         if (tickThread != null) {
             tickThread.interrupt();
         }
@@ -241,6 +344,26 @@ public final class Ball {
                 frame.dispose();
             });
         }
+    }
+
+    /**
+     * Milliseconds remaining on the global post-play quiet period, or 0
+     * if a new ball may spawn immediately. A ball that is currently in
+     * play ({@link #active()} non-null) also returns 0 — the cooldown
+     * only blocks <i>spawning a new</i> ball, it never blocks chasing
+     * one that already exists.
+     */
+    public static long playCooldownRemainingMs() {
+        if (active() != null) {
+            return 0L;
+        }
+        long last = LAST_FINISHED_MS.get();
+        if (last == 0L) {
+            return 0L;
+        }
+        long elapsed = System.currentTimeMillis() - last;
+        long remaining = PLAY_COOLDOWN_MS - elapsed;
+        return remaining > 0 ? remaining : 0L;
     }
 
     private void initOnEdt() {
@@ -287,17 +410,22 @@ public final class Ball {
                 if (Math.abs(newV) < REST_THRESHOLD) {
                     newV = 0;
                 }
-                int minX = monitor.x;
-                int maxX = monitor.x + monitor.width - sizePx;
-                if (newX < minX) {
-                    newX = minX;
-                    newV = -newV * WALL_BOUNCE;
-                    if (Math.abs(newV) < REST_THRESHOLD) newV = 0;
-                } else if (newX > maxX) {
-                    newX = maxX;
-                    newV = -newV * WALL_BOUNCE;
-                    if (Math.abs(newV) < REST_THRESHOLD) newV = 0;
+                if (!ending) {
+                    // Normal play: bounce off the monitor edges.
+                    int minX = monitor.x;
+                    int maxX = monitor.x + monitor.width - sizePx;
+                    if (newX < minX) {
+                        newX = minX;
+                        newV = -newV * WALL_BOUNCE;
+                        if (Math.abs(newV) < REST_THRESHOLD) newV = 0;
+                    } else if (newX > maxX) {
+                        newX = maxX;
+                        newV = -newV * WALL_BOUNCE;
+                        if (Math.abs(newV) < REST_THRESHOLD) newV = 0;
+                    }
                 }
+                // In ending mode we deliberately skip the wall clamp so
+                // the ball can roll past the monitor edge and fall off.
                 xLogical = newX;
                 vx = newV;
             }
@@ -311,29 +439,43 @@ public final class Ball {
         // rolling on just closed). Without the gravity branch the ball
         // would teleport down the moment its support disappears, which
         // reads as a glitch next to the now-falling pet beside it.
-        World world = World.snapshot(screenW, screenH);
-        int currentFeetY = yLogical + sizePx;
-        int snappedTop = world.floorY(sizePx, (int) xLogical, sizePx, currentFeetY);
-        int monBottomTop = monitor.y + monitor.height - sizePx;
-        int targetY = Math.min(snappedTop, monBottomTop);
-        if (yLogicalD < targetY) {
+        // While ending and the ball has rolled fully past either
+        // monitor edge horizontally, stop snapping to a floor and let
+        // gravity carry it off-screen. Inside the monitor it still rolls
+        // on whatever floor it sits on, so the visual is "rolls along
+        // the floor → drops off the edge → falls out of view".
+        boolean offEdgeHoriz = ending &&
+                ((xLogical + sizePx <= monitor.x) ||
+                 (xLogical >= monitor.x + monitor.width));
+        if (offEdgeHoriz) {
             vy += GRAVITY_PER_TICK;
-            double newY = yLogicalD + vy;
-            if (newY >= targetY) {
-                newY = targetY;
-                vy = -vy * FLOOR_BOUNCE;
-                if (Math.abs(vy) < 0.5) vy = 0;
-            }
-            yLogicalD = newY;
+            yLogicalD += vy;
+            yLogical = (int) yLogicalD;
         } else {
-            // Already at-or-below the floor (normal rolling): snap up
-            // to the surface and zero vertical velocity. Snap is also
-            // what handles a NEW window opening below the ball, where
-            // floorY clamps us up onto its top.
-            yLogicalD = targetY;
-            vy = 0;
+            World world = World.snapshot(screenW, screenH);
+            int currentFeetY = yLogical + sizePx;
+            int snappedTop = world.floorY(sizePx, (int) xLogical, sizePx, currentFeetY);
+            int monBottomTop = monitor.y + monitor.height - sizePx;
+            int targetY = Math.min(snappedTop, monBottomTop);
+            if (yLogicalD < targetY) {
+                vy += GRAVITY_PER_TICK;
+                double newY = yLogicalD + vy;
+                if (newY >= targetY) {
+                    newY = targetY;
+                    vy = -vy * FLOOR_BOUNCE;
+                    if (Math.abs(vy) < 0.5) vy = 0;
+                }
+                yLogicalD = newY;
+            } else {
+                // Already at-or-below the floor (normal rolling): snap up
+                // to the surface and zero vertical velocity. Snap is also
+                // what handles a NEW window opening below the ball, where
+                // floorY clamps us up onto its top.
+                yLogicalD = targetY;
+                vy = 0;
+            }
+            yLogical = (int) yLogicalD;
         }
-        yLogical = (int) yLogicalD;
 
         // --- EDT position update ---
         if (frame != null) {
@@ -379,16 +521,34 @@ public final class Ball {
             }
         }
 
-        // --- Idle despawn ---
+        // --- End-of-session: dispose once the ball has fully left
+        //     the screen, or after the failsafe timeout. ---
+        if (ending) {
+            boolean offLeft   = xLogical + sizePx < monitor.x;
+            boolean offRight  = xLogical > monitor.x + monitor.width;
+            boolean offBottom = yLogical > monitor.y + monitor.height;
+            if (offLeft || offRight || offBottom) {
+                dispose();
+                return;
+            }
+            if (System.currentTimeMillis() - endingStartedAtMs
+                    > END_PHASE_TIMEOUT_MS) {
+                dispose();
+            }
+            return;
+        }
+
+        // --- Idle despawn / lifetime cap: trigger the wind-down,
+        //     don't dispose outright. ---
         long age = System.currentTimeMillis() - spawnedAtMs;
         if (age >= MAX_LIFETIME_MS) {
             // Hard cap: end the play session even if pets are still
             // actively kicking. Prevents indefinite scrums.
-            dispose();
+            beginEndPlay();
             return;
         }
         if (isAtRest() && System.currentTimeMillis() - lastInterestMs > IDLE_DESPAWN_MS) {
-            dispose();
+            beginEndPlay();
         }
     }
 }

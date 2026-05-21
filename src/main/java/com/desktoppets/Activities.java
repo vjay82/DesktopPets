@@ -72,6 +72,18 @@ public final class Activities {
                 if (world.taskbar() == null) {
                     return 0;
                 }
+                // Global post-play quiet period: once a ball play session
+                // ends (Ball.dispose) no pet may roll a new PLAY_BALL for
+                // Ball.PLAY_COOLDOWN_MS. Without this gate the per-pet
+                // BehaviorEngine cooldown collapses to ~cooldown/N with N
+                // pets (each rolls independently) and the screen never
+                // gets a calm gap. An already-active ball bypasses the
+                // gate (playCooldownRemainingMs returns 0 in that case)
+                // so latecomers can still join an in-progress scrum via
+                // PLAY_BALL → playBall → chaseBall.
+                if (Ball.playCooldownRemainingMs() > 0) {
+                    return 0;
+                }
                 double b = pet.needs.get(Need.BOREDOM);
                 // Need-driven ramp when BOREDOM is low, ambient floor 0.5
                 // so the ball comes out occasionally even on a fresh-spawned
