@@ -38,4 +38,30 @@ public final class Dog extends Pet {
         }
         clicked.set(false);
     }
+
+    /**
+     * Dog-specific scratch: derived from the sit pose with three
+     * rocking-tilt frames (see tools/gen-dog-scratch-frames.ps1). The
+     * frames already encode the body motion, so we cycle through them
+     * directly rather than alternating with a {@code look/1} placeholder
+     * the way the base {@link Pet#scratch()} does. ~150 ms per frame
+     * over 9 frames = ~1.35 s of visible jitter, comparable to the
+     * base loop's total duration.
+     */
+    @Override
+    public final void scratch() {
+        Sprites.apply(emoteLabel, "emote/paw");
+        applySprite("dog/sit");
+        sleepInterruptible(220);
+        for (int i = 0; i < 9 && !interrupted(); i++) {
+            applySprite("dog/scratch/" + (i % 3));
+            sleepInterruptible(150);
+        }
+        if (!interrupted()) {
+            applySprite("dog/sit");
+            sleepInterruptible(180);
+        }
+        Sprites.apply(emoteLabel, null);
+        needs.add(Need.BOREDOM, 20);
+    }
 }

@@ -20,17 +20,22 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 
 $pets = @(
-    @{ name='Cat';   idle='Cat/Idle/tile000.svg';   vb=32; feetY=29 },
-    @{ name='Dog';   idle='Dog/Idle/tile000.svg';   vb=48; feetY=38 },
-    @{ name='Ducky'; idle='Ducky/Idle/tile000.svg'; vb=64; feetY=56 },
-    @{ name='Bird';  idle='Bird/Idle/tile001.svg'; vb=32; feetY=28 }
+    @{ name='Cat';   idle='Cat/Idle/tile000.svg';   vb=32; feetY=29; method='squash' },
+    @{ name='Dog';   idle='Dog/Idle/tile000.svg';   vb=48; feetY=38; method='clip';   cutY=32 },
+    @{ name='Ducky'; idle='Ducky/Idle/tile000.svg'; vb=64; feetY=56; method='squash' },
+    @{ name='Bird';  idle='Bird/Idle/tile001.svg'; vb=32; feetY=28; method='squash' }
 )
 
-# Vertical squash pivoted at the feet line: translate-to-origin,
+# 'squash' method: vertical squash pivoted at the feet line: translate-to-origin,
 # scale-Y, translate-back. The leading `translate(0 1)` nudges the
 # squashed shape one pixel down so it doesn't reveal a hairline gap
 # above the floor on rounding.
 $squash = 0.55
+
+# 'clip' method (used for Dog): rather than squashing (which leaves
+# proportionally-shorter but still-visible standing legs), clip away the
+# leg region and slide the remaining head/torso down so its cut edge
+# rests on the floor. The result reads as "lying on belly, legs tucked".
 
 function Get-InnerSvg {
     param([string]$Path)
@@ -52,9 +57,28 @@ foreach ($pet in $pets) {
     if (-not (Test-Path -LiteralPath $outDir)) {
         New-Item -ItemType Directory -Path $outDir | Out-Null
     }
-    $tf = "translate(0 1) translate(0 $($pet.feetY)) scale(1 $squash) translate(0 -$($pet.feetY))"
     $vb = $pet.vb
-    $svg = @"
+    if ($pet.method -eq 'clip') {
+        $cutY = $pet.cutY
+        $drop = $pet.feetY - $cutY
+        $svg = @"
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 $vb $vb" width="$vb" height="$vb">
+  <defs>
+    <clipPath id="bodyOnly" clipPathUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="$vb" height="$cutY"/>
+    </clipPath>
+  </defs>
+  <g transform="translate(0 $drop)">
+    <g clip-path="url(#bodyOnly)">
+$inner
+    </g>
+  </g>
+</svg>
+"@
+    } else {
+        $tf = "translate(0 1) translate(0 $($pet.feetY)) scale(1 $squash) translate(0 -$($pet.feetY))"
+        $svg = @"
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 $vb $vb" width="$vb" height="$vb">
   <g transform="$tf">
@@ -62,6 +86,7 @@ $inner
   </g>
 </svg>
 "@
+    }
     $out = Join-Path $outDir "tile000.svg"
     [System.IO.File]::WriteAllText($out, $svg, [System.Text.UTF8Encoding]::new($false))
     Write-Host "  wrote $($pet.name)/LayDown/tile000.svg"

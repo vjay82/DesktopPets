@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<!-- The bone artwork (knobs at cx=22/78 with r=10) spans x=12..88 in its
+     native 100-unit coord system (~76% of the canvas), which made it render
+     visibly larger than ball/seed (~55-60% of canvas). Pad the viewBox out
+     so the bone occupies ~54% of the rendered sprite square. Art
+     coordinates are unchanged. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 -20 140 140">
   <ellipse cx="50" cy="82" rx="32" ry="5" fill="#000" opacity="0.22"/>
   <!-- bone body + four knobs -->
   <g fill="#f5ecd0" stroke="#7a6a3a" stroke-width="2.5" stroke-linejoin="round">

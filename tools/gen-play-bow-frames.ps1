@@ -45,18 +45,28 @@ foreach ($pet in $pets) {
     if (-not (Test-Path -LiteralPath $outDir)) {
         New-Item -ItemType Directory -Path $outDir | Out-Null
     }
-    $tf = "rotate($angle $($pet.cx) $($pet.feetY))"
     $vb = $pet.vb
-    $svg = @"
+    # tile000.svg = right-facing bow: rotate forward (toward the right
+    # side of the viewBox). tile001.svg = left-facing bow: mirror the
+    # whole body across the viewBox center, then apply the same forward
+    # rotation. Because the inner transform's anchor (cx) sits on the
+    # mirror axis, the rotation still pivots at the feet.
+    $tfRight = "rotate($angle $($pet.cx) $($pet.feetY))"
+    $tfLeft  = "translate($vb 0) scale(-1 1) rotate($angle $($pet.cx) $($pet.feetY))"
+    foreach ($variant in @(
+            @{ idx=0; tf=$tfRight; label='right' },
+            @{ idx=1; tf=$tfLeft;  label='left'  })) {
+        $svg = @"
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 $vb $vb" width="$vb" height="$vb">
-  <g transform="$tf">
+  <g transform="$($variant.tf)">
 $inner
   </g>
 </svg>
 "@
-    $out = Join-Path $outDir "tile000.svg"
-    [System.IO.File]::WriteAllText($out, $svg, [System.Text.UTF8Encoding]::new($false))
-    Write-Host "  wrote $($pet.name)/PlayBow/tile000.svg"
+        $out = Join-Path $outDir ("tile{0:000}.svg" -f $variant.idx)
+        [System.IO.File]::WriteAllText($out, $svg, [System.Text.UTF8Encoding]::new($false))
+        Write-Host "  wrote $($pet.name)/PlayBow/tile$('{0:000}' -f $variant.idx).svg ($($variant.label))"
+    }
 }
 Write-Host "done."

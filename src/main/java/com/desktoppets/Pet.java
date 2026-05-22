@@ -2089,14 +2089,20 @@ public abstract class Pet implements Runnable {
     public void playBow(Pet other) {
         sit();
         if (interrupted() || hovered || clicked.get()) return;
-        applySprite(doodleKind() + "/play-bow");
+        // Face the invitee: pick the mirrored variant when the other pet
+        // is to our left so the bow visibly leans TOWARD them instead of
+        // away. Without this the bow always tilts right and looks like
+        // the pet is ignoring its target.
+        int myMid = logicalLocation().x + effectiveWidth() / 2;
+        int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+        String bowKey = (otherMid < myMid) ? "/play-bow-left" : "/play-bow-right";
+        applySprite(doodleKind() + bowKey);
         showEmote("sparkle", 700);
         sleepInterruptible(900L);
         if (interrupted() || hovered || clicked.get()) return;
         showEmote("note", 700);
         sleepInterruptible(700L);
         if (interrupted() || hovered || clicked.get()) return;
-        int myMid = logicalLocation().x + effectiveWidth() / 2;
         other.requestReaction(Reaction.HUNT, 6_000L, myMid);
         applySprite(doodleKind() + "/sit");
         sleepInterruptible(300L);
@@ -2857,8 +2863,11 @@ public abstract class Pet implements Runnable {
             if (interrupted()) return;
         }
 
-        // Pee: hold sit pose, drip splash emotes for a few beats.
-        applySprite(doodleKind() + "/sit");
+        // Pee: hold the dedicated pee pose (idle body + yellow stream
+        // and puddle overlay) and drip splash emotes for a few beats.
+        // The sprite is direction-agnostic — the trunk side was set up
+        // by walkAlongFloor above, and the splash emote sits on top.
+        applySprite(doodleKind() + "/pee");
         for (int i = 0; i < 4; i++) {
             if (interrupted() || hovered || clicked.get()) return;
             showEmote("splash", 600);
@@ -4224,7 +4233,7 @@ public abstract class Pet implements Runnable {
      * (dig/wave/look-around). Cancels cleanly on hover/click/interrupt
      * via the standard {@link #interrupted} check between beats.
      */
-    public final void scratch() {
+    public void scratch() {
         Sprites.apply(emoteLabel, "emote/paw");
         applySprite(doodleKind() + "/sit");
         sleepInterruptible(220);
