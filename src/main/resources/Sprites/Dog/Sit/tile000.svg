@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" shape-rendering="crispEdges">
+<!--
+  Beagle "sit" pose, frame 0/3 of the tail-wag cycle: TAIL HIGH.
+  Body is identical across all four sit tiles; only the tail varies so
+  the dog appears to wag its tail up-and-down while sitting.
+  Cycle: 0=high, 1=mid (going down), 2=horizontal/out, 3=mid (going up).
+  See Idle/tile000.svg for the source body the front half is taken from.
+-->
+<defs>
+  <linearGradient id="belly" x1="0" y1="32" x2="0" y2="34" gradientUnits="userSpaceOnUse" spreadMethod="pad">
+    <stop offset="0" stop-color="#f7eede"/>
+    <stop offset="1" stop-color="#c89a6a"/>
+  </linearGradient>
+</defs>
+
+<!-- ===== Tail: HIGH (curled straight up off the rump). ===== -->
+<rect x="14" y="27" width="1" height="3" fill="#4a2c18"/>
+<rect x="13" y="26" width="2" height="2" fill="#4a2c18"/>
+<rect x="13" y="25" width="1" height="1" fill="#d4a373"/>
+
+<!-- ===== Rear (re-posed for sitting). Shifted right so the dog
+     doesn't look elongated when sitting. ===== -->
+<rect x="24" y="26" width="2" height="1" fill="#4a2c18"/>
+<rect x="22" y="27" width="2" height="1" fill="#4a2c18"/>
+<rect x="20" y="28" width="2" height="1" fill="#4a2c18"/>
+<rect x="18" y="29" width="2" height="1" fill="#4a2c18"/>
+<rect x="14" y="30" width="4" height="1" fill="#4a2c18"/>
+
+<rect x="24" y="27" width="2" height="2" fill="#d4a373"/>
+<rect x="22" y="28" width="4" height="2" fill="#d4a373"/>
+<rect x="20" y="29" width="6" height="2" fill="#d4a373"/>
+<rect x="18" y="30" width="8" height="2" fill="#d4a373"/>
+
+<rect x="15" y="31" width="7" height="2" fill="#d4a373"/>
+<rect x="14" y="33" width="9" height="4" fill="#d4a373"/>
+<rect x="14" y="37" width="9" height="1" fill="#a47a52"/>
+
+<rect x="19" y="33" width="4" height="4" fill="url(#belly)"/>
+<rect x="22" y="32" width="4" height="1" fill="url(#belly)"/>
+<rect x="23" y="33" width="3" height="1" fill="url(#belly)"/>
+
+<rect x="22" y="36" width="3" height="1" fill="#a47a52"/>
+<rect x="22" y="37" width="3" height="1" fill="#d4a373"/>
+<rect x="24" y="37" width="1" height="1" fill="#1a1410"/>
+
+<!-- ===== Front (preserved from Idle/tile000). ===== -->
+<rect x="24" y="25" width="5" height="2" fill="#4a2c18"/>
+<rect x="29" y="25" width="2" height="2" fill="#d4a373"/>
+<rect x="24" y="27" width="7" height="2" fill="#d4a373"/>
+<rect x="24" y="29" width="7" height="3" fill="#d4a373"/>
+<rect x="30" y="32" width="1" height="1" fill="#a47a52"/>
+<rect x="24" y="32" width="6" height="1" fill="url(#belly)"/>
+<rect x="29" y="33" width="1" height="1" fill="#a47a52"/>
+<rect x="24" y="33" width="5" height="1" fill="url(#belly)"/>
+
+<rect x="29" y="23" width="2" height="2" fill="#4a2c18"/>
+<rect x="28" y="25" width="2" height="5" fill="#4a2c18"/>
+<rect x="27" y="29" width="2" height="2" fill="#4a2c18"/>
+
+<rect x="30" y="23" width="4" height="1" fill="#4a2c18"/>
+<rect x="30" y="24" width="5" height="2" fill="#d4a373"/>
+<rect x="30" y="26" width="2" height="2" fill="#d4a373"/>
+<rect x="32" y="26" width="4" height="2" fill="url(#belly)"/>
+<rect x="32" y="28" width="5" height="2" fill="url(#belly)"/>
+<rect x="33" y="30" width="3" height="1" fill="url(#belly)"/>
+<rect x="32" y="25" width="1" height="1" fill="#1a1410"/>
+<rect x="35" y="27" width="1" height="1" fill="#1a1410"/>
+
+<rect x="25" y="35" width="2" height="2" fill="#a47a52"/>
+<rect x="25" y="37" width="2" height="1" fill="url(#belly)"/>
+<rect x="28" y="34" width="2" height="3" fill="#d4a373"/>
+<rect x="28" y="35" width="1" height="1" fill="#a47a52"/>
+<rect x="28" y="37" width="2" height="1" fill="url(#belly)"/>
+</svg>

@@ -43,7 +43,7 @@ public final class Activities {
                 double h = pet.needs.get(Need.HUNGER);
                 return h < 30 ? 90 - h : 0;
             },
-            (pet, _) -> pet.eat());
+            (pet, world) -> pet.eat(world));
 
     /**
      * Mirror of {@link #EAT} but for {@link Need#THIRST}. Same priority
@@ -55,7 +55,7 @@ public final class Activities {
                 double t = pet.needs.get(Need.THIRST);
                 return t < 30 ? 90 - t : 0;
             },
-            (pet, _) -> pet.drink());
+            (pet, world) -> pet.drink(world));
 
     public static final Activity SEEK_PETTING = new Activity("seek-petting",
             (pet, _) -> {
@@ -219,7 +219,20 @@ public final class Activities {
                 // Plain idle only — sit/stretch/look are reserved as the
                 // visual signature of grooming/wave/crouch-pout/dig/etc., so
                 // a random IDLE roll never looks like one of those activities.
-                pet.idle();
+                //
+                // Exception: if the pet just finished a sit-based ambient
+                // activity (yawn, daydream, stargaze, …) its last pose is a
+                // sit frame. Calling pet.idle() here would visibly pop it
+                // back to standing for the post-activity rest window, only
+                // for the next sit-based activity to immediately sit down
+                // again — reads as the pet jumping up and sitting in quick
+                // succession. Keep it seated instead: re-run sit() so the
+                // tail keeps wagging through the rest period.
+                if (pet.isInSitPose()) {
+                    pet.sit();
+                } else {
+                    pet.idle();
+                }
             });
 
     // ---------------- new per-pet activities ----------------
@@ -297,6 +310,54 @@ public final class Activities {
     public static final Activity KNOCK_SOMETHING_OFF = new Activity("knock-something-off",
             (_, world) -> world.topmostWindows().isEmpty() ? 0 : 0.3,
             (pet, world) -> pet.knockSomethingOff(world));
+
+    /**
+     * Edge-of-screen gag: a leafy tree fades in on the left or right
+     * monitor edge, and nearby pets trot over and pee against it. The
+     * tree itself only appears when at least one ground pet happens to
+     * loiter near an edge (the activity's priority is 0 otherwise), and a
+     * long global cooldown on {@link Tree#spawnCooldownRemainingMs}
+     * guarantees the trees stay rare. While the tree is alive, every
+     * other ground pet on the same monitor within
+     * {@link Tree#INTEREST_RADIUS} can join in at higher priority — so a
+     * single tree session often pulls in multiple visitors before fading.
+     *
+     * <p>Birds and visitor pets are excluded: birds fly (and would need a
+     * dedicated animation) and visitors run their own scripted loop.
+     */
+    public static final Activity PEE_TREE = new Activity("pee-tree",
+            (pet, _) -> {
+                if (pet.isVisitor()) return 0;
+                if (pet instanceof Bird) return 0;
+                if (pet.needs.lowestBelow(15.0) != null) return 0;
+                Rectangle mon = pet.currentMonitorBounds();
+                int petW = pet.effectiveWidth();
+                int myMid = pet.logicalLocation().x + petW / 2;
+                Tree active = Tree.active();
+                if (active != null && !active.isEnding()) {
+                    Rectangle tm = active.monitor();
+                    if (tm.x != mon.x || tm.y != mon.y) return 0;
+                    if (Math.abs(myMid - active.trunkCenterX()) <= Tree.INTEREST_RADIUS) {
+                        // Join: high priority so the pet visibly converges
+                        // on the tree (rare-event payoff). Still below
+                        // urgent self-care which is gated above.
+                        return 2.0;
+                    }
+                    return 0;
+                }
+                if (Tree.spawnCooldownRemainingMs() > 0) return 0;
+                // Summon from anywhere on the monitor — the pet will
+                // walk over to the nearer edge to find the tree. Pets
+                // already close to an edge get a small bonus so they
+                // are more often the ones to summon (less travel ⇒
+                // tighter, more believable animation).
+                int distEdge = Math.min(myMid - mon.x, mon.x + mon.width - myMid);
+                double edgeBonus = distEdge <= Tree.EDGE_PROXIMITY_PX ? 0.4 : 0.0;
+                // Below the "join" priority (2.0) so an existing tree
+                // always wins over a fresh spawn elsewhere.
+                return 1.1 + edgeBonus;
+            },
+            (pet, world) -> pet.peeAgainstTree(world));
 
     /** Dog: runs to the cursor, sits, trots back. */
     public static final Activity FETCH_CURSOR = new Activity("fetch-cursor",
@@ -591,8 +652,9 @@ public final class Activities {
                         : otherMid + other.effectiveWidth() / 2;
                 pet.walkAlongFloor(world, targetX);
                 if (pet.interrupted()) return;
+                other.setEmote("bang");
                 pet.showEmote("bang", 500);
-                other.showEmote("bang", 500);
+                other.hideEmote();
                 Pet.sleepInterruptible(500);
                 if (pet.interrupted()) return;
                 Rectangle mon = pet.currentMonitorBounds();
@@ -621,8 +683,12 @@ public final class Activities {
                         : otherMid + target.effectiveWidth() / 2;
                 pet.runAlongFloor(world, approachX);
                 if (pet.interrupted()) return;
-                target.showEmote("paw", 700);   // the tap lands on the OTHER pet
+                // Tap lands on the OTHER pet at the same instant the
+                // tagger sparkles, so flash the victim's paw non-blockingly
+                // for the duration of our own sparkle.
+                target.setEmote("paw");
                 pet.showEmote("sparkle", 350);
+                target.hideEmote();
                 Pet.sleepInterruptible(300);
                 if (pet.interrupted()) return;
                 Rectangle mon = pet.currentMonitorBounds();
@@ -711,8 +777,9 @@ public final class Activities {
                 pet.sit();
                 for (int i = 0; i < 3; i++) {
                     if (pet.interrupted()) return;
+                    other.setEmote("mini-heart");
                     pet.showEmote("lick", 600);
-                    other.showEmote("mini-heart", 600);
+                    other.hideEmote();
                     Pet.sleepInterruptible(500);
                 }
                 pet.needs.add(Need.AFFECTION, 25);
@@ -742,8 +809,9 @@ public final class Activities {
                 if (pet.interrupted()) return;
                 pet.sit();
                 if (pet.interrupted()) return;
+                other.setEmote("chat");
                 pet.showEmote("chat", 600);
-                other.showEmote("chat", 600);
+                other.hideEmote();
                 int otherMidX = other.logicalLocation().x + other.effectiveWidth() / 2;
                 int myMidX = pet.logicalLocation().x + pet.effectiveWidth() / 2;
                 for (int i = 0; i < 3; i++) {
@@ -819,8 +887,9 @@ public final class Activities {
                 if (pet.interrupted()) return;
                 int hunterMid = pet.logicalLocation().x + petW / 2;
                 victim.requestReaction(Pet.Reaction.DUCK, 1200L, hunterMid);
+                victim.setEmote("question");
                 pet.showEmote("bang", 600);
-                victim.showEmote("question", 600);
+                victim.hideEmote();
                 pet.needs.add(Need.BOREDOM, -15);
                 victim.needs.add(Need.ENERGY, -10);
             });
@@ -849,8 +918,9 @@ public final class Activities {
                         : otherMid + other.effectiveWidth() / 2;
                 pet.walkAlongFloor(world, targetX);
                 if (pet.interrupted()) return;
+                other.setEmote("moon");
                 pet.showEmote("moon", 700);
-                other.showEmote("moon", 700);
+                other.hideEmote();
                 Pet.sleepInterruptible(700);
                 if (pet.interrupted()) return;
                 // Sibling's zzz prop appears in sync with our sleep().
@@ -914,19 +984,22 @@ public final class Activities {
                 if (pet.interrupted()) return;
                 pet.sit();
                 if (pet.interrupted()) return;
+                other.setEmote("vs");
                 pet.showEmote("vs", 1000);
-                other.showEmote("vs", 1000);
+                other.hideEmote();
                 Pet.sleepInterruptible(800);
                 if (pet.interrupted()) return;
                 boolean iLose = ThreadLocalRandom.current().nextBoolean();
                 if (iLose) {
+                    other.setEmote("sparkle");
                     pet.showEmote("drop", 700);
-                    other.showEmote("sparkle", 700);
+                    other.hideEmote();
                     pet.needs.add(Need.AFFECTION, -5);
                     other.needs.add(Need.AFFECTION, 10);
                 } else {
-                    other.showEmote("drop", 700);
+                    other.setEmote("drop");
                     pet.showEmote("sparkle", 700);
+                    other.hideEmote();
                     other.needs.add(Need.AFFECTION, -5);
                     pet.needs.add(Need.AFFECTION, 10);
                 }
@@ -957,8 +1030,9 @@ public final class Activities {
                         : otherMid + other.effectiveWidth() / 2;
                 pet.walkAlongFloor(world, targetX);
                 if (pet.interrupted()) return;
+                other.setEmote("think-food");
                 pet.showEmote("think-food", 800);
-                other.showEmote("think-food", 800);
+                other.hideEmote();
                 Pet.sleepInterruptible(600);
                 if (pet.interrupted()) return;
                 // Drive both food props directly so they share the meal.
@@ -1120,6 +1194,41 @@ public final class Activities {
                 pet.speak(pet.randomSound(), 1400L, targetMidX);
             });
 
+    /**
+     * Invite-to-play: walk adjacent to the nearest sibling and perform a
+     * play-bow (Cat/Dog/Bird) or bop-in-place cycle (Ducky's
+     * {@link Pet#playBow} override). At the climax we plant a
+     * {@link Pet.Reaction#HUNT} on the sibling so its engine's next tick
+     * runs {@link Pet#huntFrom(World)} — the invitee sprints toward us
+     * and lands a paw tap. Reads as "you wanna play? catch me!".
+     *
+     * <p>Distinct from {@link #CHASE_PET} (single-pet pursuit, no
+     * reaction) and {@link #HUNT_PET} (initiator hunts after planting
+     * FLEE on prey): here the initiator stays still and the invitee
+     * does the chasing.
+     */
+    public static final Activity INVITE_PLAY = new Activity("invite-play",
+            (pet, _) -> {
+                if (pet.nearestOtherPet(PET_PET_RADIUS) == null) return 0;
+                // Slight boredom bias so bored pets initiate play more.
+                double b = pet.needs.get(Need.BOREDOM);
+                return b < 60 ? 0.6 + (60 - b) * 0.01 : 0.45;
+            },
+            (pet, world) -> {
+                Pet other = pet.nearestOtherPet(PET_PET_RADIUS);
+                if (other == null) return;
+                int petW = pet.effectiveWidth();
+                int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+                boolean fromLeft = pet.logicalLocation().x < otherMid;
+                int targetX = fromLeft
+                        ? otherMid - other.effectiveWidth() / 2 - petW
+                        : otherMid + other.effectiveWidth() / 2;
+                pet.walkAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.playBow(other);
+                pet.needs.add(Need.BOREDOM, -10);
+            });
+
     // ---------------- v2 activity additions ----------------
     // (each gated by Personality.multiplier; 0.0 disables for a species)
 
@@ -1164,6 +1273,24 @@ public final class Activities {
     public static final Activity ROLL_OVER = new Activity("roll-over",
             (_, _) -> 0.35,
             (pet, _) -> pet.rollOver());
+
+    /**
+     * Solo: brief sphinx-style rest. Sits, settles into a vertically
+     * compressed "lay-down" pose, holds, then stands up. Restores some
+     * ENERGY (less than {@link #SLEEP}) so a moderately-tired pet has a
+     * lighter alternative to a full nap. Priority gently ramps as ENERGY
+     * drops but always stays below {@link #SLEEP} so an exhausted pet
+     * still prefers a full nap.
+     */
+    public static final Activity LAY_DOWN = new Activity("lay-down",
+            (pet, _) -> {
+                double e = pet.needs.get(Need.ENERGY);
+                // Floor 0.4 so a content pet still lies down occasionally;
+                // ramps up to ~1.4 around ENERGY 30 (well above SLEEP's
+                // trigger band so SLEEP wins when truly exhausted).
+                return e < 70 ? 0.4 + (70 - e) * 0.025 : 0.4;
+            },
+            (pet, _) -> pet.layDown());
 
     /** Window-aware: walk to a random topmost window column and sniff at it. */
     public static final Activity INSPECT_WINDOW = new Activity("inspect-window",
@@ -1277,14 +1404,17 @@ public final class Activities {
             COPYCAT, GIFT, GROOM_OTHER, PARALLEL_PACE,
             DISAPPEAR_REAPPEAR, ZOOMIES, WANDER,
             HIGH_PERCH_LEAP, GROOMING, KNOCK_SOMETHING_OFF,
+            PEE_TREE,
             INSPECT_WINDOW, WINDOW_HOP, PERCH_NAP, STARE_AT_FOREGROUND,
             FLIT, CIRCLE, PERCH_SING,
             WADDLE_LOOP, CRAWL_SNEAK, CROUCH_POUT, QUACK_COMBO,
             DIG, SCRATCH, DANCE,
             CHASE_TAIL, HICCUP, STARGAZE, BURST_OF_HEARTS,
             HEAD_TILT, YAWN, MOON_GAZE, PACE, LICK_EDGE, SPEAK,
+            INVITE_PLAY,
             DAYDREAM, SNEEZE, BUTT_WIGGLE_POUNCE, WATCH_CLOCK,
             SCREEN_SCRATCH, ROLL_OVER, CHASE_LASER, TYPE_BUDDY,
+            LAY_DOWN,
             HOURLY_BARK,
             MAKE_SPACE,
             IDLE);

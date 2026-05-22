@@ -1,8 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <g font-family="serif" font-weight="bold" fill="#3a6fd1" stroke="#1d3a78" stroke-width="1">
-    <text x="55" y="40" font-size="22">Z</text>
-    <text x="40" y="60" font-size="32">Z</text>
-    <text x="20" y="85" font-size="46">Z</text>
+<!--
+  Sleep "ZZZ" prop floated next to a sleeping pet (Pet.sleep -> showProp).
+
+  Redesigned to match the pixel-art Heart tile style:
+   * Same 64x64 viewBox so the propLabel (square) doesn't visually
+     squash the art.
+   * Content bounding box ~= viewBox bounding box (centered, no tall
+     skinny column like the previous text-based version), so the Zs
+     don't appear "too tall and offset" inside the square slot.
+   * White fill + dark blue outline + light highlight, mirroring the
+     heart tile's fill/stroke/shine layering.
+
+  Three Zs of decreasing size walk diagonally from bottom-left to
+  top-right (the conventional "fading off to sleep" direction).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- White fill body -->
+  <g fill="#ffffff" stroke="#1d3a78" stroke-width="2" stroke-linejoin="miter">
+    <!-- big Z, bottom-left -->
+    <polygon points="6,32 30,32 30,37 12,51 30,51 30,56 6,56 6,51 24,37 6,37"/>
+    <!-- medium Z, middle -->
+    <polygon points="24,18 42,18 42,22 30,32 42,32 42,36 24,36 24,32 36,22 24,22"/>
+    <!-- small Z, top-right -->
+    <polygon points="42,6 54,6 54,9 47,15 54,15 54,18 42,18 42,15 49,9 42,9"/>
+  </g>
+  <!-- Light highlight along the top edge of each Z's top bar -->
+  <g fill="#a8c2f0" stroke="none">
+    <rect x="7"  y="33" width="22" height="1"/>
+    <rect x="25" y="19" width="16" height="1"/>
+    <rect x="43" y="7"  width="10" height="1"/>
   </g>
 </svg>

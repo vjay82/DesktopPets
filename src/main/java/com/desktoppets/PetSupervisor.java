@@ -62,6 +62,16 @@ public final class PetSupervisor {
     }
 
     /**
+     * Backwards-compatible overload — equivalent to
+     * {@link #reconcileCounts(Map, Map, Map)} with an empty scale map
+     * (every pet renders at the global size).
+     */
+    public void reconcileCounts(Map<String, Integer> wantedCounts,
+                                Map<String, Double> hueByKey) {
+        reconcileCounts(wantedCounts, hueByKey, Map.of());
+    }
+
+    /**
      * Reconcile to a species->count mapping. Each species can have multiple
      * live instances; instances are keyed internally as {@code species#index}
      * so that incrementing or decrementing a count only spawns/stops the
@@ -75,10 +85,19 @@ public final class PetSupervisor {
      * degrees [0, 360). Hues are applied to NEW spawns only; live pets keep
      * the hue they were created with. Missing / null entries mean "no
      * tint" ({@code 0.0}).
+     *
+     * <p>{@code scaleByKey} (same keying as {@code hueByKey}) optionally
+     * assigns a per-pet size multiplier in {@code (0.0, 2.0]} so individual
+     * pets can be spawned smaller (a "child" of its species) or larger
+     * than the global {@code petSize}. Missing / null entries mean
+     * {@code 1.0} (full-size adult). Stored on the pet so a later global
+     * {@link #setPetSize(int)} keeps the relative scale.
      */
     public void reconcileCounts(Map<String, Integer> wantedCounts,
-                                Map<String, Double> hueByKey) {
+                                Map<String, Double> hueByKey,
+                                Map<String, Double> scaleByKey) {
         if (hueByKey == null) hueByKey = Map.of();
+        if (scaleByKey == null) scaleByKey = Map.of();
         // Build desired set of composite keys "<species>#<index>"
         Map<String, String> wantedKeyToSpecies = new HashMap<>();
         for (Map.Entry<String, Integer> e : wantedCounts.entrySet()) {
@@ -112,7 +131,9 @@ public final class PetSupervisor {
                     pet.activityLevel = activityLevel;
                     Double hue = hueByKey.get(key);
                     pet.hueShift = hue == null ? 0.0 : hue;
-                    pet.setSize(petSize);
+                    Double scale = scaleByKey.get(key);
+                    pet.sizeScale = (scale == null || scale <= 0.0) ? 1.0 : scale;
+                    pet.setSize((int) Math.round(petSize * pet.sizeScale));
                     Thread t = new Thread(pet, "pet-" + key);
                     t.setDaemon(true);
                     PetHandle h = new PetHandle(pet, t);
@@ -156,12 +177,16 @@ public final class PetSupervisor {
         int clamped = Math.max(16, Math.min(256, size));
         this.petSize = clamped;
         for (PetHandle h : live.values()) {
-            h.pet.setSize(clamped);
+            double s = h.pet.sizeScale <= 0.0 ? 1.0 : h.pet.sizeScale;
+            h.pet.setSize((int) Math.round(clamped * s));
         }
         // Match any active visitor (e.g. a bird mid-perch) so it doesn't
-        // look out-of-scale when the user resizes residents.
+        // look out-of-scale when the user resizes residents. Visitors
+        // don't get a per-pet scale (always 1.0) so they just track the
+        // global size directly.
         for (PetHandle h : visitors) {
-            h.pet.setSize(clamped);
+            double s = h.pet.sizeScale <= 0.0 ? 1.0 : h.pet.sizeScale;
+            h.pet.setSize((int) Math.round(clamped * s));
         }
     }
 

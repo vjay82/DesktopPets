@@ -22,6 +22,11 @@ public final class Dog extends Pet {
     @Override protected java.util.List<String> runRightFrames() { return frames("dog/run-right", 0, 3); }
     @Override protected int runStepDelayMs() { return 3; }
 
+    // 4-frame sit with tail wagging up-and-down (Sprites/Dog/Sit/tile000-003).
+    @Override protected java.util.List<String> sitFrames() {
+        return java.util.List.of("dog/sit/0", "dog/sit/1", "dog/sit/2", "dog/sit/3");
+    }
+
     @Override
     public void onClicked() {
         // Half the time stretch (happy dog), half the time sit (good boy).

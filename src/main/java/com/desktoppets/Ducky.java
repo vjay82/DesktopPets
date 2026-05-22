@@ -37,4 +37,29 @@ public final class Ducky extends Pet {
         sleepInterruptible(500);
         clicked.set(false);
     }
+
+    /**
+     * Ducks can't lower the front-half of their body the way a cat or dog
+     * play-bows, so the duck signals "let's play!" by bopping up and down
+     * in place — alternating crouch/stand three times — and then plants
+     * the same {@link Reaction#HUNT} request on the invitee that the
+     * default play-bow does. Visually distinct, semantically identical.
+     */
+    @Override
+    public void playBow(Pet other) {
+        for (int i = 0; i < 3; i++) {
+            if (interrupted() || hovered || clicked.get()) return;
+            applySprite("ducky/sit");      // crouch (resolved to crouch.svg)
+            sleepInterruptible(300L);
+            if (interrupted() || hovered || clicked.get()) return;
+            applySprite("ducky/idle/0");   // stand
+            if (i == 0) showEmote("sparkle", 700);
+            else if (i == 1) showEmote("note", 600);
+            sleepInterruptible(300L);
+        }
+        if (interrupted() || hovered || clicked.get()) return;
+        int myMid = logicalLocation().x + effectiveWidth() / 2;
+        other.requestReaction(Reaction.HUNT, 6_000L, myMid);
+        idle();
+    }
 }

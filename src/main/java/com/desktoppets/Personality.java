@@ -77,6 +77,8 @@ public final class Personality {
                 .bias("watch-clock", 1.0)
                 .bias("screen-scratch", 1.5)
                 .bias("roll-over", 0.0)        // cat doesn't do dog-style rolls
+                .bias("lay-down", 1.4)         // cats love a sphinx pose
+                .bias("invite-play", 0.9)      // cats invite play, but less than dogs
                 .bias("inspect-window", 1.5)
                 .bias("perch-nap", 1.5)
                 .bias("window-hop", 1.6)
@@ -137,6 +139,8 @@ public final class Personality {
                 .bias("watch-clock", 1.0)
                 .bias("screen-scratch", 0.5)
                 .bias("roll-over", 1.5)
+                .bias("lay-down", 1.2)
+                .bias("invite-play", 1.6)      // dogs are the prototypical play-bowers
                 .bias("inspect-window", 1.2)
                 .bias("perch-nap", 0.4)        // dogs rarely on perches
                 .bias("window-hop", 0.0)
@@ -199,6 +203,8 @@ public final class Personality {
                 .bias("watch-clock", 1.0)
                 .bias("screen-scratch", 0.4)
                 .bias("roll-over", 0.6)
+                .bias("lay-down", 1.0)
+                .bias("invite-play", 1.0)      // duck bops in place instead of bowing
                 .bias("inspect-window", 1.0)
                 .bias("perch-nap", 0.3)
                 .bias("window-hop", 0.0)

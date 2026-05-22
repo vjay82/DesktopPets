@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<!-- The fish artwork spans x=16..92 in its native 100-unit coord system
+     (~76% of the canvas), which made it render visibly larger than ball/
+     bone/seed (~55-60% of canvas). Pad the viewBox out to 140x140 so the
+     fish occupies ~54% of the rendered sprite square, matching the other
+     props. Art coordinates are unchanged. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 -20 140 140">
   <ellipse cx="50" cy="80" rx="34" ry="5" fill="#000" opacity="0.22"/>
   <!-- body -->
   <ellipse cx="46" cy="55" rx="30" ry="16" fill="#7fb5d8" stroke="#2f5a76" stroke-width="2.5"/>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- A small yellow splash: a curved arc with droplets -->
+  <g fill="#f7c948" stroke="#a07a10" stroke-width="0.6">
+    <ellipse cx="12" cy="18" rx="6" ry="2" opacity="0.55"/>
+  </g>
+  <g fill="#fde68a" stroke="#a07a10" stroke-width="0.6">
+    <!-- arc trail -->
+    <path d="M4 14 Q8 6 14 8 Q18 9 19 14" fill="none" stroke-width="1.2" opacity="0.85"/>
+    <!-- droplets -->
+    <circle cx="6"  cy="13" r="1.4"/>
+    <circle cx="10" cy="8.5" r="1.7"/>
+    <circle cx="15" cy="9"  r="1.4"/>
+    <circle cx="18" cy="13" r="1.6"/>
+    <!-- ground splash -->
+    <path d="M9 18 L8 16 L10 17 L12 15 L13 17 L15 16 L14 18 Z"/>
+  </g>
+</svg>

@@ -137,6 +137,19 @@ public abstract class Pet implements Runnable {
     public volatile double hueShift;
 
     /**
+     * Per-pet size multiplier applied on top of the supervisor's global
+     * {@code petSize}. {@code 1.0} = full-size adult (default), values
+     * below {@code 1.0} render this pet as a smaller "child" of its
+     * species. Set once by {@link PetSupervisor} just after construction
+     * and re-read by {@link PetSupervisor#setPetSize(int)} so a global
+     * resize keeps each pet's relative scale. Range is clamped by
+     * callers; {@link Pet#setSize(int)} still enforces the absolute
+     * [16, 256] window so an extreme multiplier can't make a pet
+     * illegibly small or absurdly large.
+     */
+    public volatile double sizeScale = 1.0;
+
+    /**
      * Apply a doodle sprite key to {@link #petLabel} using this pet's
      * {@link #hueShift}. Single funnel so call sites don't need to repeat
      * the hue parameter. Non-pet labels ({@link #heartLabel},
@@ -146,6 +159,22 @@ public abstract class Pet implements Runnable {
      */
     protected final void applySprite(String key) {
         Sprites.apply(petLabel, key, hueShift);
+        this.lastPetSpriteKey = key;
+    }
+
+    /** Last sprite key applied to {@link #petLabel}. Tracked so callers
+     *  (e.g. {@link Activities#IDLE}) can tell what pose the pet is
+     *  currently holding without inspecting the JLabel's icon. */
+    private volatile String lastPetSpriteKey;
+
+    /** True iff the pet's body sprite is currently a sit-pose frame
+     *  (key starts with {@code doodleKind() + "/sit"}). Used by the
+     *  IDLE activity to keep a recently-sat pet seated through the
+     *  forced post-activity rest period, rather than briefly standing
+     *  up between two sit-based activities (yawn → daydream etc.). */
+    public final boolean isInSitPose() {
+        String k = lastPetSpriteKey;
+        return k != null && k.startsWith(doodleKind() + "/sit");
     }
 
     private Thread heartThread = new Thread();
@@ -307,9 +336,25 @@ public abstract class Pet implements Runnable {
      *                  evenly across the 3 frames.
      */
     protected final void animateKick(boolean kickRight, long totalMs) {
+        animateKick(kickRight, totalMs, null);
+    }
+
+    /**
+     * Variant of {@link #animateKick(boolean, long)} that invokes
+     * {@code onContact} the instant the contact (leg-extended) frame
+     * becomes visible, i.e. ~1/3 of the way through the animation. Used
+     * to apply the {@link Ball#kick(double)} impulse at the moment the
+     * pet's foot meets the ball instead of at the end of the swing
+     * (otherwise the ball, which keeps rolling under physics during the
+     * 180 ms swing, can drift 100+ logical pixels away from the pet
+     * before the impulse fires — perceived as "pet kicks the ball from
+     * far away").
+     */
+    protected final void animateKick(boolean kickRight, long totalMs, Runnable onContact) {
         List<String> cycle = kickRight ? walkRightFrames() : walkLeftFrames();
         int n = cycle.size();
         if (n == 0) {
+            if (onContact != null) onContact.run();
             sleepInterruptible(totalMs);
             return;
         }
@@ -324,6 +369,7 @@ public abstract class Pet implements Runnable {
         sleepInterruptible(slice);
         if (interrupted()) return;
         applySprite(contact);
+        if (onContact != null) onContact.run();
         sleepInterruptible(slice);
         if (interrupted()) return;
         applySprite(recover);
@@ -480,7 +526,7 @@ public abstract class Pet implements Runnable {
      * {@link #requestReaction} is called from <i>another</i> pet's behaviour
      * thread.
      */
-    public enum Reaction { NONE, DUCK, FLEE }
+    public enum Reaction { NONE, DUCK, FLEE, HUNT }
 
     /**
      * Immutable snapshot of a pending pet-pet reaction. The three fields
@@ -578,6 +624,36 @@ public abstract class Pet implements Runnable {
         targetX = Math.max(mon.x, Math.min(mon.x + mon.width - petW, targetX));
         showEmote("bang", 250);
         runAlongFloor(world, targetX);
+        clearReactionIfStill(s);
+    }
+
+    /**
+     * Consume a HUNT reaction: sprint toward the requester's last known
+     * x (the inviting pet that just play-bowed at us). The chase reads as
+     * "you wanted to play? I'll catch you" — the invited pet runs to the
+     * inviter's column, lands a {@code paw} tap, and lets the inviter
+     * carry on whatever it picks next. Distinct from {@link #fleeFrom}
+     * (opposite direction) and from {@link Activities#HUNT_PET} (which is
+     * a self-initiated chase, not a triggered reaction).
+     */
+    public final void huntFrom(World world) {
+        ReactionState s = reactionRef.get();
+        Rectangle mon = currentMonitorBounds();
+        int petW = effectiveWidth();
+        Point loc = logicalLocation();
+        int myMid = loc.x + petW / 2;
+        int targetMid = s.sourceX();
+        // Stop one body-width short on the approach side so we don't
+        // overlap the inviter when we arrive.
+        int approachX = (myMid < targetMid)
+                ? targetMid - petW - petW / 2
+                : targetMid + petW / 2;
+        approachX = Math.max(mon.x, Math.min(mon.x + mon.width - petW, approachX));
+        showEmote("target", 350);
+        runAlongFloor(world, approachX);
+        if (!interrupted()) {
+            showEmote("paw", 500);
+        }
         clearReactionIfStill(s);
     }
 
@@ -1572,10 +1648,29 @@ public abstract class Pet implements Runnable {
         sleepInterruptible(IDLE_TAIL_MS);
     }
 
-    /** Pet sits in place for a longer hold; calming idle variant. */
+    /** Pet sits in place for a longer hold; calming idle variant.
+     *  Default is a single static pose held for {@link #SIT_HOLD_MS}.
+     *  Subclasses can return multiple keys from {@link #sitFrames()} to
+     *  animate during the hold (e.g. Dog wagging its tail). */
     public void sit() {
-        applySprite(doodleKind() + "/sit");
-        sleepInterruptible(SIT_HOLD_MS);
+        List<String> frames = sitFrames();
+        if (frames.size() <= 1) {
+            applySprite(frames.isEmpty() ? doodleKind() + "/sit" : frames.get(0));
+            sleepInterruptible(SIT_HOLD_MS);
+            return;
+        }
+        long deadline = System.currentTimeMillis() + SIT_HOLD_MS;
+        while (System.currentTimeMillis() < deadline) {
+            if (interrupted() || hovered || clicked.get()) return;
+            playFrames(petLabel, frames, IDLE_FRAME_MS);
+        }
+    }
+
+    /** Frames shown by {@link #sit()}. Default is a single static key
+     *  resolved per-species via {@link Doodle}; subclasses override to
+     *  animate the sit pose. */
+    protected List<String> sitFrames() {
+        return List.of(doodleKind() + "/sit");
     }
 
     /** Pet stretches â€” distinct silhouette for a beat then resumes. */
@@ -1641,6 +1736,29 @@ public abstract class Pet implements Runnable {
     }
 
     /**
+     * World-aware eat: telegraph hunger, run to the nearest screen edge,
+     * fetch the food prop from "behind" it, then chew in place. Used by
+     * the solo {@link Activities#EAT} so the food visibly arrives from
+     * off-screen instead of materialising under the pet. The no-arg
+     * {@link #eat()} is kept for rendezvous activities like {@code
+     * SHARE_FOOD} where the prop is supplied by the encounter itself.
+     */
+    public void eat(World world) {
+        showEmote("think-food", 1000);
+        if (interrupted() || hovered || clicked.get()) return;
+        fetchPropFromEdge(world, foodPropKey());
+        if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
+        long bite = Math.max(400L, EAT_HOLD_MS / 3);
+        for (int i = 0; i < 2; i++) {
+            if (interrupted() || hovered || clicked.get()) break;
+            playFrames(petLabel, idleFrames(), IDLE_FRAME_MS);
+            showEmote("chomp", bite);
+        }
+        needs.add(Need.HUNGER, 100);
+        clearProp();
+    }
+
+    /**
      * Pet drinks in place; fully restores THIRST and shows a water-bowl
      * overlay. Telegraphs the action first via a {@code think-water} thought
      * bubble. Mirrors {@link #eat()} so the hunger/thirst pair reads as a
@@ -1650,6 +1768,23 @@ public abstract class Pet implements Runnable {
         showEmote("think-water", 1000);
         if (interrupted() || hovered || clicked.get()) return;
         showProp("prop/water");
+        playFrames(petLabel, idleFrames(), IDLE_FRAME_MS);
+        sleepInterruptible(EAT_HOLD_MS);
+        needs.add(Need.THIRST, 100);
+        clearProp();
+    }
+
+    /**
+     * World-aware drink: like {@link #drink()} but fetches the water bowl
+     * from behind the nearest screen edge first via
+     * {@link #fetchPropFromEdge(World, String)}. Used by the solo
+     * {@link Activities#DRINK}.
+     */
+    public void drink(World world) {
+        showEmote("think-water", 1000);
+        if (interrupted() || hovered || clicked.get()) return;
+        fetchPropFromEdge(world, "prop/water");
+        if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
         playFrames(petLabel, idleFrames(), IDLE_FRAME_MS);
         sleepInterruptible(EAT_HOLD_MS);
         needs.add(Need.THIRST, 100);
@@ -1939,6 +2074,56 @@ public abstract class Pet implements Runnable {
     }
 
     /**
+     * Play-bow gesture: walk adjacent to {@code other}, lower the front
+     * half of the body in the dedicated {@code play-bow} pose, flash a
+     * {@code note}/{@code sparkle} emote, hold the pose briefly, then
+     * stand. At the end of the bow we plant a {@link Reaction#HUNT}
+     * request on {@code other} so the invitee chases us back — the
+     * "invite to play" half of the gesture turns into a friendly hunt.
+     *
+     * <p>Subclasses that physically can't bow (e.g. {@link Ducky}) override
+     * this with a different inviting visual (a bop / crouch-stand cycle)
+     * but still call {@link #requestReaction} on the same beat so the
+     * resulting chase behaviour is identical.
+     */
+    public void playBow(Pet other) {
+        sit();
+        if (interrupted() || hovered || clicked.get()) return;
+        applySprite(doodleKind() + "/play-bow");
+        showEmote("sparkle", 700);
+        sleepInterruptible(900L);
+        if (interrupted() || hovered || clicked.get()) return;
+        showEmote("note", 700);
+        sleepInterruptible(700L);
+        if (interrupted() || hovered || clicked.get()) return;
+        int myMid = logicalLocation().x + effectiveWidth() / 2;
+        other.requestReaction(Reaction.HUNT, 6_000L, myMid);
+        applySprite(doodleKind() + "/sit");
+        sleepInterruptible(300L);
+        idle();
+    }
+
+    /**
+     * Lay-down rest: sit briefly, then settle into the dedicated
+     * {@code lay-down} pose (idle body vertically squashed toward the
+     * feet) and hold for ~3.2s. Restores a portion of ENERGY but
+     * intentionally less than {@link #sleep()} so SLEEP stays the
+     * canonical full-recovery activity; no Z-Z-Z prop so the visual
+     * reads as "resting" rather than "asleep".
+     */
+    public void layDown() {
+        sit();
+        if (interrupted() || hovered || clicked.get()) return;
+        applySprite(doodleKind() + "/lay-down");
+        sleepInterruptible(3_200L);
+        if (interrupted() || hovered || clicked.get()) return;
+        needs.add(Need.ENERGY, 40);
+        applySprite(doodleKind() + "/sit");
+        sleepInterruptible(400L);
+        idle();
+    }
+
+    /**
      * Roll-over gag: sit â†’ flip to the sleep sprite (legs up / belly out
      * for dog and cat) â†’ sit. Brief; relies on the existing
      * {@code sleep}/{@code sit} key resolution per species.
@@ -2197,18 +2382,102 @@ public abstract class Pet implements Runnable {
     private static final int PET_COPY_RADIUS = 1200;
 
     /**
-     * Walk to ball-spawn area to "pick up" a {@code prop/gift}, then
-     * carry it to the nearest sibling and hand it over. Sibling shows
-     * {@code mini-heart}; both pets gain AFFECTION.
+     * Walk to the nearest screen edge, "reach behind it" to fetch
+     * {@code propKey}, then walk back to the starting column with the
+     * prop in hand. Used by {@link #eat(World)}, {@link #drink(World)}
+     * and {@link #gift(World)} so food / water / gift items visibly
+     * come from off-screen rather than popping into existence under
+     * the pet.
+     *
+     * <p>The "reach" is implemented by sliding the frame half a
+     * {@link #petSize} past the monitor edge; {@link MonitorClipper}
+     * inside {@link #moveFrameTo} clips the frame so the pet really
+     * does disappear behind the edge for the grab beat. The prop is
+     * attached only after the pet steps back into view, so the user
+     * sees an empty-handed reach followed by a full-handed return.
+     *
+     * <p>On any interruption (hover, click, engine shutdown) the
+     * partial-off-screen slide is undone before returning so the pet
+     * isn't left clipped at the edge.
+     *
+     * @param world    world used by {@link #walkAlongFloor} (floor
+     *                 profile / collisions). Must be non-null.
+     * @param propKey  prop key to attach after the grab, e.g.
+     *                 {@code "prop/fish"} or {@code "prop/gift"}.
+     */
+    public void fetchPropFromEdge(World world, String propKey) {
+        if (frame == null || disposed || world == null) return;
+        Point start = logicalLocation();
+        int petW = effectiveWidth();
+        Rectangle mon = currentMonitorBounds();
+        if (mon == null) {
+            // No monitor binding yet (very early in life) â€” degrade to
+            // the original in-place behaviour so the pet still shows
+            // the prop.
+            if (propKey != null) showProp(propKey);
+            return;
+        }
+        int curMid = start.x + petW / 2;
+        int monMid = mon.x + mon.width / 2;
+        boolean toLeft = curMid < monMid;
+        int edgeX = toLeft ? mon.x : mon.x + mon.width - petSize;
+        // Walk to the edge with empty hands.
+        walkAlongFloor(world, edgeX);
+        if (interrupted() || hovered || clicked.get()) return;
+        // Face outward so the reach reads as deliberate. Apply the first
+        // frame of the matching walk cycle, same trick used by gift().
+        List<String> facing = toLeft ? walkLeftFrames() : walkRightFrames();
+        if (!facing.isEmpty()) {
+            applySprite(facing.get(0));
+        }
+        showEmote("sparkle", 350);
+        if (interrupted() || hovered || clicked.get()) return;
+        // Slide half a frame past the edge so the pet's front half is
+        // clipped off behind the monitor boundary.
+        int reachDx = Math.max(8, petSize / 2);
+        int reachX = toLeft ? edgeX - reachDx : edgeX + reachDx;
+        Point reachLoc = new Point(reachX, start.y);
+        moveFrameTo(reachLoc.x, reachLoc.y);
+        sleepInterruptible(450);
+        // Slide back to the edge BEFORE bailing on interrupt so the pet
+        // isn't left half-off-screen.
+        moveFrameTo(edgeX, start.y);
+        if (interrupted() || hovered || clicked.get()) return;
+        // Now attach the prop â€” the pet returns into view holding it.
+        if (propKey != null) showProp(propKey);
+        sleepInterruptible(150);
+        if (interrupted() || hovered || clicked.get()) return;
+        // Carry it back to where the pet was before fetching.
+        walkAlongFloor(world, start.x);
+    }
+
+    /**
+     * Pet-pet handover: pick up a {@code prop/gift}, carry it to the
+     * nearest sibling, turn to face them, and visibly transfer the gift
+     * onto the sibling (the box moves from this pet's prop slot to the
+     * sibling's). The sibling then shows {@code mini-heart} above the
+     * gift, the giver shows {@code sparkle}, and both gain AFFECTION.
+     *
+     * <p>The "transfer" stage is what makes the interaction readable to
+     * the user: clearing our prop and only showing a small heart over the
+     * other pet (the original behaviour) was easy to miss when the two
+     * pets were already adjacent or the heart was occluded â€” the user
+     * just saw a pet lift a gift and "nothing happen". Moving the gift
+     * sprite onto the sibling makes the hand-off explicit.
      */
     public void gift(World world) {
         Pet other = nearestOtherPet(PET_COPY_RADIUS);
-        if (other == null) { idle(); return; }
-        // "Pick up" gift in place.
-        showProp("prop/gift");
-        showEmote("gift", 600);
-        sleepInterruptible(500);
+        if (other == null || other.frame == null) { idle(); return; }
+        // Telegraph the intent before fetching so the user can read the
+        // run-to-edge as "going to grab a present" rather than random
+        // wandering.
+        showEmote("gift", 1100);
+        if (interrupted() || hovered || clicked.get()) return;
+        // Fetch the gift from behind the nearest screen edge instead of
+        // conjuring it in place.
+        fetchPropFromEdge(world, "prop/gift");
         if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
+        if (other.frame == null) { clearProp(); return; }
         int petW = effectiveWidth();
         int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
         boolean fromLeft = logicalLocation().x < otherMid;
@@ -2217,10 +2486,35 @@ public abstract class Pet implements Runnable {
                 : otherMid + other.effectiveWidth() / 2;
         walkAlongFloor(world, targetX);
         if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
-        // Hand over: clear our prop, sibling gets a heart.
+        if (other.frame == null) { clearProp(); return; }
+        // Face the sibling so the hand-off reads as deliberate. Mirrors
+        // the trick used by peeTree: apply the first frame of the
+        // walk-cycle pointing the right way, then sit on it briefly.
+        java.util.List<String> facing = fromLeft ? walkRightFrames() : walkLeftFrames();
+        if (!facing.isEmpty()) {
+            applySprite(facing.get(0));
+        }
+        sleepInterruptible(250);
+        if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
+        // Visible hand-off: gift sprite moves from giver -> receiver. The
+        // brief 80 ms gap with no prop on either pet reads as a "pass"
+        // rather than the original instantaneous swap.
         clearProp();
-        other.showEmote("mini-heart", 1200);
-        showEmote("sparkle", 700);
+        sleepInterruptible(80);
+        if (other.frame != null) {
+            other.showProp("prop/gift");
+        }
+        // Both pets react together so the user can clearly see who gave
+        // and who received: a heart over the receiver while it "holds"
+        // the gift, and a sparkle over the giver.
+        if (other.frame != null) {
+            Sprites.apply(other.emoteLabel, "emote/mini-heart");
+        }
+        showEmote("sparkle", 900);
+        if (other.frame != null) {
+            Sprites.apply(other.emoteLabel, null);
+            other.clearProp();
+        }
         needs.add(Need.AFFECTION, 15);
         other.needs.add(Need.AFFECTION, 25);
         other.needs.add(Need.BOREDOM, -10);
@@ -2249,8 +2543,11 @@ public abstract class Pet implements Runnable {
         if (interrupted() || hovered || clicked.get()) return;
         for (int i = 0; i < 3; i++) {
             if (interrupted()) return;
+            // Flash the recipient's sparkle simultaneously with our lick,
+            // not sequentially — see Pet.setEmote/hideEmote.
+            other.setEmote("sparkle");
             showEmote("lick", 600);
-            other.showEmote("sparkle", 600);
+            other.hideEmote();
             sleepInterruptible(500);
         }
         needs.add(Need.AFFECTION, 15);
@@ -2362,19 +2659,23 @@ public abstract class Pet implements Runnable {
         int feetY = myLoc.y + feetH;
         int ballX = kickRight ? myLoc.x + petW : myLoc.x - ballSize;
 
-        // Face the ball and bat-emote BEFORE spawning the ball so the
-        // causeâ†’effect reads correctly: paw out, then ball appears and
-        // launches. animateKick cycles through mid/contact/recover walk
-        // frames so the leg-swing is visible (was just frozen walk[0]).
+        // Face the ball and bat-emote BEFORE swinging the leg so the
+        // causeâ†’effect reads correctly. The ball is spawned NOW (before
+        // the animation) so it is visibly next to the pet during the
+        // wind-up; the impulse is applied at the contact frame inside
+        // animateKick via the onContact callback. Spawning the ball
+        // first and only kicking on contact also prevents the ball from
+        // drifting away during the swing ("kicked from far away" bug).
         showEmote("paw", 220);
-        animateKick(kickRight, 180);
-        if (interrupted()) return;
-
         Ball ball = Ball.spawn(mon, ballX, feetY, ballSize,
                 (int) screen.getWidth(), (int) screen.getHeight());
-        double impulse = (kickRight ? 1 : -1)
-                * (700 + ThreadLocalRandom.current().nextDouble(0, 500));
-        ball.kick(impulse);
+        final boolean kickRightFinal = kickRight;
+        animateKick(kickRight, 180, () -> {
+            double impulse = (kickRightFinal ? 1 : -1)
+                    * (700 + ThreadLocalRandom.current().nextDouble(0, 500));
+            ball.kick(impulse);
+        });
+        if (interrupted()) return;
         needs.add(Need.BOREDOM, 25);
         // Don't enter chase here â€” BehaviorEngine's per-tick ball bypass
         // will route THIS pet (and every other nearby one) into chaseBall
@@ -2427,14 +2728,19 @@ public abstract class Pet implements Runnable {
             }
             applySprite((kickRight ? walkRightFrames() : walkLeftFrames()).get(0));
             showEmote("paw", 180);
-            double impulse = (kickRight ? 1 : -1)
-                    * (600 + ThreadLocalRandom.current().nextDouble(0, 500));
+            final boolean kickRightFinal = kickRight;
             // 3-frame leg-swing wind-up before the impulse, so the kick
             // VISIBLY swings a leg instead of just freezing on walk[0]
             // ("ball kicking sprites seem missing"). The ball launches
-            // on the contact frame.
-            animateKick(kickRight, 180);
-            ball.kick(impulse);
+            // on the contact frame (mid-swing) â€” not after the full
+            // animation â€” so the ball doesn't drift away from the pet
+            // during the swing under its own rolling physics ("pets
+            // kicked it from far away").
+            animateKick(kickRight, 180, () -> {
+                double impulse = (kickRightFinal ? 1 : -1)
+                        * (600 + ThreadLocalRandom.current().nextDouble(0, 500));
+                ball.kick(impulse);
+            });
             needs.add(Need.BOREDOM, 12);
             sleepInterruptible(80);
             return;
@@ -2467,6 +2773,105 @@ public abstract class Pet implements Runnable {
         if (myMon.x != bm.x || myMon.y != bm.y) return false;
         int myMid = logicalLocation().x + effectiveWidth() / 2;
         return Math.abs(myMid - ball.centerX()) <= Ball.INTEREST_RADIUS;
+    }
+
+    /**
+     * Pee against the global {@link Tree}: walk over to it, face the trunk,
+     * sit, and emit a few {@code splash} emotes. Spawns the tree on the
+     * nearest monitor edge if no tree is currently active (the
+     * {@link Activities#PEE_TREE} priority gate guarantees the caller is
+     * within {@link Tree#EDGE_PROXIMITY_PX} of an edge in that case). Birds
+     * and visitors should not call this; {@link Activities#PEE_TREE}
+     * filters them out.
+     */
+    public void peeAgainstTree(World world) {
+        Tree tree = Tree.active();
+        if (tree == null || tree.isEnding()) {
+            // No active tree (or it's already fading out) — summon one
+            // on the side of the screen we're closer to. The activity's
+            // priority gate already verified we're near an edge.
+            Rectangle mon = currentMonitorBounds();
+            int petW = effectiveWidth();
+            int myMid = logicalLocation().x + petW / 2;
+            boolean leftEdge = (myMid - mon.x) <= (mon.x + mon.width - myMid);
+            // Cap tree at 1.5x pet height so it never looms ridiculously
+            // large on small monitors / large pets. Width follows the
+            // tree.svg aspect ratio (~0.6 wide:tall).
+            int treeH = (int) Math.round(petSize * 1.5);
+            int treeW = Math.max(48, (int) Math.round(treeH * 0.6));
+            // Tree base Y must be in LOGICAL pixels (frame.setLocation is
+            // logical). world.taskbar() comes from raw Win32 and is in
+            // PHYSICAL pixels on Windows (per-monitor DPI aware V2), so
+            // using it directly placed the tree at a Y too small for the
+            // logical screen and the tree appeared to float. Use AWT's
+            // per-monitor screen insets instead — those are reported in
+            // logical pixels, so subtracting them from the monitor bottom
+            // gives the true work-area floor regardless of DPI scaling or
+            // wherever the pet happens to be standing right now.
+            java.awt.GraphicsConfiguration gc = null;
+            for (java.awt.GraphicsDevice d : java.awt.GraphicsEnvironment
+                    .getLocalGraphicsEnvironment().getScreenDevices()) {
+                java.awt.GraphicsConfiguration cfg = d.getDefaultConfiguration();
+                Rectangle b = cfg.getBounds();
+                if (b.x == mon.x && b.y == mon.y && b.width == mon.width && b.height == mon.height) {
+                    gc = cfg;
+                    break;
+                }
+            }
+            int baseY;
+            if (gc != null) {
+                java.awt.Insets ins = java.awt.Toolkit.getDefaultToolkit().getScreenInsets(gc);
+                baseY = mon.y + mon.height - ins.bottom;
+            } else {
+                baseY = logicalLocation().y
+                        + (int) Math.round(effectiveHeight() * feetYRatio());
+            }
+            tree = Tree.spawn(mon, leftEdge, baseY, treeW, treeH);
+            // EDT init may fail (headless / shutdown) — give up gracefully.
+            if (tree == null || tree.isDisposed()) {
+                idle();
+                return;
+            }
+        }
+        tree.noteInterest();
+
+        // Walk to the side of the trunk on our approach side.
+        int petW = effectiveWidth();
+        int trunkX = tree.trunkCenterX();
+        int myMid0 = logicalLocation().x + petW / 2;
+        boolean fromLeft = myMid0 < trunkX;
+        Rectangle mon = currentMonitorBounds();
+        int targetX = fromLeft
+                ? trunkX - tree.width() / 2 - petW + 4
+                : trunkX + tree.width() / 2 - 4;
+        targetX = Math.max(mon.x, Math.min(mon.x + mon.width - petW, targetX));
+        walkAlongFloor(world, targetX);
+        if (interrupted()) return;
+        tree.noteInterest();
+
+        // Face the trunk.
+        java.util.List<String> facing = fromLeft ? walkRightFrames() : walkLeftFrames();
+        if (!facing.isEmpty()) {
+            applySprite(facing.get(0));
+            sleepInterruptible(200);
+            if (interrupted()) return;
+        }
+
+        // Pee: hold sit pose, drip splash emotes for a few beats.
+        applySprite(doodleKind() + "/sit");
+        for (int i = 0; i < 4; i++) {
+            if (interrupted() || hovered || clicked.get()) return;
+            showEmote("splash", 600);
+            sleepInterruptible(500);
+            tree.noteInterest();
+        }
+        showEmote("drop", 500);
+        sleepInterruptible(200);
+        // Real-world logic: emptying the bladder costs a bit of THIRST
+        // (more thirsty afterwards), and the visit is a refreshing break
+        // — small BOREDOM relief.
+        needs.add(Need.BOREDOM, -10);
+        needs.add(Need.THIRST,  -6);
     }
 
     /** Default: idle with hearts. Hover satisfies the underlying need. */
@@ -2548,9 +2953,13 @@ public abstract class Pet implements Runnable {
         // Only the pet's body sprite is hue-rotated; emote / heart / prop
         // labels keep their canonical colours so e.g. red hearts stay red.
         double hue = (label == petLabel) ? hueShift : 0.0;
+        boolean trackPose = (label == petLabel);
         for (String f : frames) {
             if (interrupted()) return;
             Sprites.apply(label, f, hue);
+            if (trackPose) {
+                this.lastPetSpriteKey = f;
+            }
             sleepInterruptible(frameMs);
         }
     }
@@ -3440,6 +3849,30 @@ public abstract class Pet implements Runnable {
     public final void showEmote(String key, long ms) {
         Sprites.apply(emoteLabel, "emote/" + key);
         sleepInterruptible(ms);
+        Sprites.apply(emoteLabel, null);
+    }
+
+    /**
+     * Non-blocking sibling of {@link #showEmote}: sets the emote sprite on
+     * this pet without sleeping the caller. Use when one pet wants another
+     * pet's emote to flash <i>simultaneously</i> with its own &mdash; the
+     * naive sequential pattern
+     * <pre>pet.showEmote("bang", 500); other.showEmote("bang", 500);</pre>
+     * runs serially on the caller's thread (1 s total, each pet's bang
+     * invisible while the other's is up). Use instead:
+     * <pre>other.setEmote("bang");
+     *pet.showEmote("bang", 500);
+     *other.hideEmote();</pre>
+     * so both bangs are on screen for the same 500 ms window. Pass {@code
+     * null} to clear.
+     */
+    public final void setEmote(String key) {
+        Sprites.apply(emoteLabel, key == null ? null : "emote/" + key);
+    }
+
+    /** Clear any emote currently shown on this pet. Counterpart to
+     *  {@link #setEmote(String)} for the "simultaneous emote" pattern. */
+    public final void hideEmote() {
         Sprites.apply(emoteLabel, null);
     }
 

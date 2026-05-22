@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-6 -6 36 36" width="36" height="36">
   <!-- Prop: gift box the pet carries while delivering a present.
-       Filled corners + thicker outline so it reads at sprite size. -->
+       Filled corners + thicker outline so it reads at sprite size.
+       The artwork itself spans roughly (2..22, 3..22) in viewBox units;
+       the viewBox is padded out to 36x36 so the gift renders at a footprint
+       comparable to the other Sprites/Props/*.svg (which use viewBox 0 0 100
+       100 with art occupying ~55-65% of the canvas). Without this padding the
+       gift's tight 24x24 viewBox made it visually ~50% larger on-screen than
+       the pets and other props when rendered through Doodle.render. -->
+
   <!-- Box body -->
   <rect x="3" y="11" width="18" height="11" fill="#e26a96" stroke="#5a162f" stroke-width="1.1"/>
   <!-- Lid overhang -->

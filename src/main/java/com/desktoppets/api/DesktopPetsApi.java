@@ -59,6 +59,14 @@ public final class DesktopPetsApi {
          *  that species. Absent / missing entries default to {@code 0.0}
          *  (no tinting, backwards-compatible). */
         private final Map<String, Map<Integer, Double>> hueByPet = new LinkedHashMap<>();
+        /** Optional per-pet size multiplier in {@code (0.0, 2.0]}, applied
+         *  on top of the global {@link #petSize}. Outer key is the
+         *  species id, inner key is the 0-based instance index. Absent
+         *  entries default to {@code 1.0} (full-size adult). Used to
+         *  spawn occasional "child" instances at e.g. {@code 0.65} so a
+         *  roster of the same species looks like a small family rather
+         *  than identical-twin clones. */
+        private final Map<String, Map<Integer, Double>> scaleByPet = new LinkedHashMap<>();
         private int petSize = Config.DEFAULT_SIZE;
         private double activity = Config.DEFAULT_ACTIVITY;
         private boolean visitorBirdsEnabled = false;
@@ -122,6 +130,65 @@ public final class DesktopPetsApi {
         Map<String, Double> hueByKey() {
             Map<String, Double> out = new LinkedHashMap<>();
             for (Map.Entry<String, Map<Integer, Double>> e : hueByPet.entrySet()) {
+                String species = e.getKey();
+                for (Map.Entry<Integer, Double> ie : e.getValue().entrySet()) {
+                    out.put(species + "#" + ie.getKey(), ie.getValue());
+                }
+            }
+            return out;
+        }
+
+        /**
+         * Set a per-pet size multiplier on top of the global pet size
+         * (see {@link #setPetSize(int)}). {@code 1.0} = full-size (the
+         * default for any pet without an explicit entry), values below
+         * {@code 1.0} render the pet smaller (a "child" of its species).
+         * Values are clamped to {@code [0.25, 2.0]}; {@code 1.0} clears
+         * any prior entry.
+         *
+         * <p>Embedders are expected to derive {@code scale} deterministically
+         * from {@code (species, index)} so a given pet keeps its scale
+         * across sessions / reconciles, the same way {@link #setHue} is
+         * used for stable per-pet tinting.
+         */
+        public DesktopPetsConfig setScale(String species, int index, double scale) {
+            if (species == null || index < 0) return this;
+            String id = species.toLowerCase(java.util.Locale.ROOT);
+            double clamped = scale;
+            if (clamped < 0.25) clamped = 0.25;
+            if (clamped > 2.0) clamped = 2.0;
+            // Treat values very close to 1.0 as "no override" so embedders
+            // can call setScale unconditionally without polluting the map
+            // with no-op entries.
+            if (Math.abs(clamped - 1.0) < 0.01) {
+                Map<Integer, Double> m = scaleByPet.get(id);
+                if (m != null) {
+                    m.remove(index);
+                    if (m.isEmpty()) scaleByPet.remove(id);
+                }
+            } else {
+                scaleByPet.computeIfAbsent(id, k -> new LinkedHashMap<>())
+                        .put(index, clamped);
+            }
+            return this;
+        }
+
+        /** Returns the size multiplier for the given pet instance, or
+         *  {@code 1.0} if not set. */
+        public double getScale(String species, int index) {
+            if (species == null) return 1.0;
+            Map<Integer, Double> m = scaleByPet.get(species.toLowerCase(java.util.Locale.ROOT));
+            if (m == null) return 1.0;
+            Double v = m.get(index);
+            return v == null ? 1.0 : v;
+        }
+
+        /** Internal: snapshot of the scale map, keyed by composite
+         *  {@code "species#index"} string for direct lookup by
+         *  {@link PetSupervisor}. */
+        Map<String, Double> scaleByKey() {
+            Map<String, Double> out = new LinkedHashMap<>();
+            for (Map.Entry<String, Map<Integer, Double>> e : scaleByPet.entrySet()) {
                 String species = e.getKey();
                 for (Map.Entry<Integer, Double> ie : e.getValue().entrySet()) {
                     out.put(species + "#" + ie.getKey(), ie.getValue());
@@ -328,7 +395,8 @@ public final class DesktopPetsApi {
     private static void applyLocked(DesktopPetsConfig cfg) {
         supervisor.setPetSize(cfg.getPetSize());
         supervisor.setActivityLevel(cfg.getActivity());
-        supervisor.reconcileCounts(new LinkedHashMap<>(cfg.getCounts()), cfg.hueByKey());
+        supervisor.reconcileCounts(new LinkedHashMap<>(cfg.getCounts()),
+                cfg.hueByKey(), cfg.scaleByKey());
         if (cfg.isVisitorBirdsEnabled() && !visitorBirdsStarted) {
             // BirdVisitor.start() registers timers; calling it twice would
             // schedule duplicate visitors, hence the guard.

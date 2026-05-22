@@ -108,6 +108,7 @@ public final class BehaviorEngine {
                 switch (pet.reaction()) {
                     case DUCK -> pet.holdDuck();
                     case FLEE -> pet.fleeFrom(world);
+                    case HUNT -> pet.huntFrom(world);
                     default   -> { /* unreachable: hasActiveReaction == NONE-guard */ }
                 }
                 continue;
@@ -319,6 +320,15 @@ public final class BehaviorEngine {
         m.put(Activities.PARALLEL_PACE,      new CooldownRange( 60_000L, 120_000L)); // 60..180 s — opportunistic
         m.put(Activities.BIRD_WARNING,       new CooldownRange( 20_000L,  40_000L)); // mirrors HUNT_BIRD
         m.put(Activities.HOURLY_BARK,        new CooldownRange(300_000L, 600_000L)); // 5..15 min
+        // Invite-to-play: spaced out so the screen isn't a constant chase.
+        m.put(Activities.INVITE_PLAY,        new CooldownRange( 90_000L, 150_000L)); // 90..240 s
+        // Lay-down rest: longer than ROLL_OVER because the pose holds ~3s.
+        m.put(Activities.LAY_DOWN,           new CooldownRange(120_000L, 180_000L)); // 2..5 min
+        // PEE_TREE: relatively short per-pet so multiple pets can join one
+        // tree session, but the global tree-spawn cooldown
+        // (Tree.SPAWN_COOLDOWN_MS, ~5 min) governs how often a new tree
+        // appears at all.
+        m.put(Activities.PEE_TREE,           new CooldownRange( 60_000L,  90_000L)); // 60..150 s
         // MAKE_SPACE: very short — the grace timer in its priority lambda
         // already resists immediate re-arming. Span needs to be > 0 because
         // ThreadLocalRandom.nextLong(0, 0) would throw; previously this was
