@@ -306,6 +306,43 @@ public final class Activities {
             (_, _) -> 0.5,
             (pet, _) -> pet.dance());
 
+    /**
+     * Showpiece gag: the pet slides backwards along the floor while its
+     * walk-cycle sprite keeps facing the direction it came from (the
+     * Michael Jackson illusion), then breaks into a dance once it
+     * arrives. Picks the side with enough monitor room for a multi
+     * body-width slide; if neither side has room it picks the larger of
+     * the two. A {@code note} emote at the start signals the upcoming
+     * dance party.
+     */
+    public static final Activity MOONWALK = new Activity("moonwalk",
+            (_, _) -> 0.4,
+            (pet, world) -> {
+                Rectangle mon = pet.currentMonitorBounds();
+                int petW = pet.effectiveWidth();
+                Point loc = pet.logicalLocation();
+                int distance = Math.max(petW * 4, 200);
+                int leftRoom = loc.x - mon.x;
+                int rightRoom = (mon.x + mon.width - petW) - loc.x;
+                int dir;
+                if (leftRoom >= distance && rightRoom >= distance) {
+                    dir = ThreadLocalRandom.current().nextBoolean() ? -1 : 1;
+                } else if (leftRoom >= distance) {
+                    dir = -1;
+                } else if (rightRoom >= distance) {
+                    dir = 1;
+                } else {
+                    dir = leftRoom > rightRoom ? -1 : 1;
+                }
+                int rawTarget = loc.x + dir * distance;
+                int targetX = Math.max(mon.x,
+                        Math.min(mon.x + mon.width - petW, rawTarget));
+                pet.showEmote("note", 400);
+                pet.moonwalkAlongFloor(world, targetX);
+                if (pet.interrupted()) return;
+                pet.dance();
+            });
+
     /** Cat: long-cooldown "knock something off the desk" moment. */
     public static final Activity KNOCK_SOMETHING_OFF = new Activity("knock-something-off",
             (_, world) -> world.topmostWindows().isEmpty() ? 0 : 0.3,
@@ -1408,7 +1445,7 @@ public final class Activities {
             INSPECT_WINDOW, WINDOW_HOP, PERCH_NAP, STARE_AT_FOREGROUND,
             FLIT, CIRCLE, PERCH_SING,
             WADDLE_LOOP, CRAWL_SNEAK, CROUCH_POUT, QUACK_COMBO,
-            DIG, SCRATCH, DANCE,
+            DIG, SCRATCH, DANCE, MOONWALK,
             CHASE_TAIL, HICCUP, STARGAZE, BURST_OF_HEARTS,
             HEAD_TILT, YAWN, MOON_GAZE, PACE, LICK_EDGE, SPEAK,
             INVITE_PLAY,

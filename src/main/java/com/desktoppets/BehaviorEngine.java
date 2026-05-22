@@ -291,6 +291,9 @@ public final class BehaviorEngine {
         m.put(Activities.SPEAK,              new CooldownRange( 45_000L,  75_000L)); // 45..120 s
         m.put(Activities.SCRATCH,            new CooldownRange( 60_000L,  90_000L)); // 60..150 s
         m.put(Activities.DANCE,              new CooldownRange(120_000L, 180_000L)); // 2..5 min
+        // Moonwalk-into-dance: same band as DANCE so the showpiece pair
+        // doesn't dominate; each rolls independently.
+        m.put(Activities.MOONWALK,           new CooldownRange(120_000L, 180_000L)); // 2..5 min
         // New pet-pet interactions.
         m.put(Activities.CONVERSE,           new CooldownRange( 60_000L, 120_000L)); // 60..180 s
         m.put(Activities.JOIN_DANCE,         new CooldownRange( 60_000L, 120_000L)); // 60..180 s — opportunistic

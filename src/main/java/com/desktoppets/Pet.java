@@ -3484,7 +3484,7 @@ public abstract class Pet implements Runnable {
      * floor profile entirely.
      */
     public void walkAlongFloor(World world, int targetX) {
-        gaitAlongFloor(world, targetX, false);
+        gaitAlongFloor(world, targetX, false, false);
     }
 
     /**
@@ -3497,7 +3497,19 @@ public abstract class Pet implements Runnable {
      * via virtual dispatch so flyers keep flying.
      */
     public void runAlongFloor(World world, int targetX) {
-        gaitAlongFloor(world, targetX, true);
+        gaitAlongFloor(world, targetX, true, false);
+    }
+
+    /**
+     * Moonwalk gait: same horizontal traversal as {@link #walkAlongFloor}
+     * but the walk-cycle frames are taken from the OPPOSITE-facing
+     * direction. Visually the pet slides toward {@code targetX} while its
+     * sprite keeps facing the way it came from â€” the classic Michael
+     * Jackson illusion. Uses walk frames (never run) and the standard walk
+     * step delay so the gag reads clearly.
+     */
+    public void moonwalkAlongFloor(World world, int targetX) {
+        gaitAlongFloor(world, targetX, false, true);
     }
 
     /**
@@ -3505,8 +3517,13 @@ public abstract class Pet implements Runnable {
      * Selects walk vs run frame set + step delay + sprite-step distance based
      * on the {@code running} flag. All collision / jump / floor-profile logic
      * is identical between the two gaits â€” only sprite + pacing differ.
+     *
+     * <p>When {@code moonwalk} is true the frame set is taken from the
+     * opposite-facing direction so the pet appears to slide backwards
+     * while facing the way it came from. Movement, collision and
+     * floor-profile logic are unchanged.
      */
-    private void gaitAlongFloor(World world, int targetX, boolean running) {
+    private void gaitAlongFloor(World world, int targetX, boolean running, boolean moonwalk) {
         Point start = logicalLocation();
         int dx = targetX - start.x;
         if (dx == 0) {
@@ -3514,7 +3531,8 @@ public abstract class Pet implements Runnable {
             return;
         }
         boolean goingRight = dx > 0;
-        List<String> frames = goingRight
+        boolean facingRight = moonwalk ? !goingRight : goingRight;
+        List<String> frames = facingRight
                 ? (running ? runRightFrames() : walkRightFrames())
                 : (running ? runLeftFrames()  : walkLeftFrames());
         int steps = Math.abs(dx);
