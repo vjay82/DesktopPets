@@ -109,30 +109,39 @@ public final class Doodle {
      * are preserved. Fully-transparent pixels are skipped. Operates in
      * place. Uses {@link java.awt.Color#RGBtoHSB} / {@code HSBtoRGB} which
      * are the JDK standard hue-rotation helpers.
+     *
+     * <p>Uses bulk {@link BufferedImage#getRGB(int, int, int, int, int[], int, int)}
+     * / {@code setRGB} on a single int[] buffer rather than per-pixel
+     * {@code getRGB(x,y)} calls. Per-pixel access goes through the image's
+     * {@code ColorModel} on every call and is ~5-10× slower than the bulk
+     * path for ARGB rasters; with N pets each tinting their own copies on
+     * cache miss, the per-pixel cost dominates spawn-time CPU on rosters
+     * of 10+ pets.
      */
     private static void applyHueRotation(BufferedImage img, int degrees) {
         float hueOffset = (degrees % 360) / 360f;
         int w = img.getWidth();
         int h = img.getHeight();
+        int[] pixels = new int[w * h];
+        img.getRGB(0, 0, w, h, pixels, 0, w);
         float[] hsb = new float[3];
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                int argb = img.getRGB(x, y);
-                int alpha = (argb >>> 24) & 0xFF;
-                if (alpha == 0) continue; // fully transparent — leave as-is
-                int r = (argb >>> 16) & 0xFF;
-                int g = (argb >>> 8) & 0xFF;
-                int b = argb & 0xFF;
-                java.awt.Color.RGBtoHSB(r, g, b, hsb);
-                // Skip pure grays: rotating their hue is a no-op because
-                // saturation is 0; this also avoids tinting outline pixels
-                // that anti-aliasing emitted as neutral gray.
-                if (hsb[1] < 0.001f) continue;
-                hsb[0] = (hsb[0] + hueOffset) % 1f;
-                int rgb = java.awt.Color.HSBtoRGB(hsb[0], hsb[1], hsb[2]);
-                img.setRGB(x, y, (alpha << 24) | (rgb & 0x00FFFFFF));
-            }
+        for (int i = 0; i < pixels.length; i++) {
+            int argb = pixels[i];
+            int alpha = (argb >>> 24) & 0xFF;
+            if (alpha == 0) continue; // fully transparent — leave as-is
+            int r = (argb >>> 16) & 0xFF;
+            int g = (argb >>> 8) & 0xFF;
+            int b = argb & 0xFF;
+            java.awt.Color.RGBtoHSB(r, g, b, hsb);
+            // Skip pure grays: rotating their hue is a no-op because
+            // saturation is 0; this also avoids tinting outline pixels
+            // that anti-aliasing emitted as neutral gray.
+            if (hsb[1] < 0.001f) continue;
+            hsb[0] = (hsb[0] + hueOffset) % 1f;
+            int rgb = java.awt.Color.HSBtoRGB(hsb[0], hsb[1], hsb[2]);
+            pixels[i] = (alpha << 24) | (rgb & 0x00FFFFFF);
         }
+        img.setRGB(0, 0, w, h, pixels, 0, w);
     }
 
     private static ImageIcon blank(int size) {

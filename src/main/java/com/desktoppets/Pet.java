@@ -1220,12 +1220,26 @@ public abstract class Pet implements Runnable {
      * idempotent, and does not steal focus. Called by {@link BehaviorEngine}
      * once per tick so the pet stays in the topmost band even if another app
      * (or a focus / mode switch) demotes it.
+     *
+     * <p>Internally throttled to at most one Win32 {@code SetWindowPos} call
+     * per second per pet: the pet thread can tick dozens of times per
+     * second during animation, and on rosters of 10+ pets the unthrottled
+     * per-tick rate measurably contends with the EDT (frames stall, the
+     * embedding app becomes laggy). One reassert per second is plenty to
+     * recover from a focus / mode-switch demotion within a beat.
      */
     public final void reassertTopmost() {
-        if (hwnd != 0L) {
-            Win32.reassertTopmost(hwnd);
-        }
+        if (hwnd == 0L) return;
+        long now = System.currentTimeMillis();
+        if (now < nextReassertTopmostMs) return;
+        nextReassertTopmostMs = now + 1000L;
+        Win32.reassertTopmost(hwnd);
     }
+
+    /** Earliest wall-clock time at which {@link #reassertTopmost()} will
+     *  actually call into Win32. See that method's javadoc for the
+     *  rationale behind the 1-second throttle. */
+    private long nextReassertTopmostMs = 0L;
 
     private void initOnEdt() throws InterruptedException, InvocationTargetException {
         Runnable build = () -> {
