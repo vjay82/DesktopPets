@@ -1646,6 +1646,11 @@ public abstract class Pet implements Runnable {
             frame.setSize(petSize, petSize);
             layoutLabels();
             Point clampedLoc = clampToScreen(loc);
+            // Invalidate the moveFrameTo no-op cache: the native frame
+            // size just changed out-of-band, so the next move must
+            // re-issue setBounds even if (x, y) match the previous call.
+            lastAppliedW = -1;
+            lastAppliedH = -1;
             // Re-route through moveFrameTo so clipping/intendedX still apply.
             moveFrameTo(clampedLoc.x, clampedLoc.y);
             applySprite(idleFrames().get(0));
@@ -3019,6 +3024,16 @@ public abstract class Pet implements Runnable {
         MonitorClipper.Clip clip = MonitorClipper.clip(intendedX, intendedY, petSize, mon);
         if (mon == null) {
             // Unclipped fast path: pet isn't bound to a monitor yet.
+            if (intendedX == lastAppliedX && intendedY == lastAppliedY
+                    && lastAppliedW == petSize && lastAppliedH == petSize
+                    && lastAppliedOffX == 0 && lastAppliedOffY == 0
+                    && !lastAppliedHidden) {
+                return;
+            }
+            lastAppliedX = intendedX; lastAppliedY = intendedY;
+            lastAppliedW = petSize;  lastAppliedH = petSize;
+            lastAppliedOffX = 0;     lastAppliedOffY = 0;
+            lastAppliedHidden = false;
             onEdt(() -> { if (!disposed) frame.setLocation(intendedX, intendedY); });
             return;
         }
@@ -3026,6 +3041,33 @@ public abstract class Pet implements Runnable {
         final Rectangle b = clip.bounds();
         final int offX = clip.offsetX();
         final int offY = clip.offsetY();
+        // Coalesce: skip the EDT round-trip + native SetWindowPos if the
+        // exact same bounds + label offset + visibility are already
+        // applied. With N pets each ticking at ~20 Hz, Window.setBounds is
+        // the dominant EDT cost (profiled at ~100% AWT-EventQueue-0 on a
+        // roster of 15 pets); this fast path turns most ticks into a no-op
+        // when the pet is briefly idle or playing a "hold pose" frame.
+        if (!hidden
+                && b.x == lastAppliedX && b.y == lastAppliedY
+                && b.width == lastAppliedW && b.height == lastAppliedH
+                && offX == lastAppliedOffX && offY == lastAppliedOffY
+                && !lastAppliedHidden) {
+            return;
+        }
+        if (hidden && lastAppliedHidden) {
+            return;
+        }
+        lastAppliedX = b.x; lastAppliedY = b.y;
+        lastAppliedW = b.width; lastAppliedH = b.height;
+        lastAppliedOffX = offX; lastAppliedOffY = offY;
+        lastAppliedHidden = hidden;
+        // Use the cheaper Window.setLocation when the frame is fully
+        // inside the monitor (no clip-induced resize): native
+        // SetWindowPos with SWP_NOSIZE is significantly cheaper than the
+        // full setBounds path on Windows.
+        final boolean sameSize = !hidden
+                && b.width == petSize && b.height == petSize
+                && offX == 0 && offY == 0;
         onEdt(() -> {
             if (disposed) {
                 return;
@@ -3036,13 +3078,28 @@ public abstract class Pet implements Runnable {
                 }
                 return;
             }
-            frame.setBounds(b.x, b.y, b.width, b.height);
-            applyLabelOffset(offX, offY);
+            if (sameSize && frame.getWidth() == petSize && frame.getHeight() == petSize) {
+                frame.setLocation(b.x, b.y);
+            } else {
+                frame.setBounds(b.x, b.y, b.width, b.height);
+                applyLabelOffset(offX, offY);
+            }
             if (!frame.isVisible()) {
                 frame.setVisible(true);
             }
         });
     }
+
+    /** Last bounds / label offset / visibility actually pushed to the
+     *  native window. Used by {@link #moveFrameTo} to coalesce no-op
+     *  ticks; see the javadoc there for the reasoning. */
+    private int lastAppliedX = Integer.MIN_VALUE;
+    private int lastAppliedY = Integer.MIN_VALUE;
+    private int lastAppliedW = -1;
+    private int lastAppliedH = -1;
+    private int lastAppliedOffX = 0;
+    private int lastAppliedOffY = 0;
+    private boolean lastAppliedHidden = false;
 
     /**
      * The pet's intended logical position (top-left of a notional
