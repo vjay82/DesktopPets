@@ -158,6 +158,17 @@ public abstract class Pet implements Runnable {
      * emote/heart/prop graphics stay in their canonical colours.
      */
     protected final void applySprite(String key) {
+        // Hot path skip: pet animation loops (idle holds, look-look-look,
+        // sit poses) re-apply the same sprite key on every behaviour
+        // tick. Doodle.icon returns the same ImageIcon reference for
+        // identical (key, size, hue) so the underlying JLabel.setIcon is
+        // a near no-op, but each Sprites.apply call still costs an
+        // EDT invokeLater + lambda allocation. Skipping when the key
+        // hasn't changed eliminates ~hundreds of EDT events/sec across
+        // a 15-pet roster.
+        if (key != null && key.equals(this.lastPetSpriteKey)) {
+            return;
+        }
         Sprites.apply(petLabel, key, hueShift);
         this.lastPetSpriteKey = key;
     }
@@ -1651,8 +1662,17 @@ public abstract class Pet implements Runnable {
             // re-issue setBounds even if (x, y) match the previous call.
             lastAppliedW = -1;
             lastAppliedH = -1;
-            // Re-route through moveFrameTo so clipping/intendedX still apply.
-            moveFrameTo(clampedLoc.x, clampedLoc.y);
+            // Bypass moveFrameTo's intendedX/Y fast-path: setSize keeps
+            // the same logical position, but we still need to actually
+            // push the new frame size to the OS. Update intendedX/Y
+            // directly and drain on the spot (we're already on EDT).
+            this.intendedX = clampedLoc.x;
+            this.intendedY = clampedLoc.y;
+            moveQueued.set(true);
+            drainMoveOnEdt();
+            // Force a sprite re-render at the new label size by
+            // invalidating the applySprite dedupe cache.
+            this.lastPetSpriteKey = null;
             applySprite(idleFrames().get(0));
             frame.revalidate();
             frame.repaint();
@@ -2504,14 +2524,40 @@ public abstract class Pet implements Runnable {
         if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
         if (other.frame == null) { clearProp(); return; }
         int petW = effectiveWidth();
-        int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
-        boolean fromLeft = logicalLocation().x < otherMid;
-        int targetX = fromLeft
-                ? otherMid - other.effectiveWidth() / 2 - petW
-                : otherMid + other.effectiveWidth() / 2;
-        walkAlongFloor(world, targetX);
-        if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
-        if (other.frame == null) { clearProp(); return; }
+        // Chase loop: the recipient may wander off (its own behaviour
+        // thread keeps running while we fetch and walk), so after each
+        // approach re-check the gap and walk again if it's grown beyond
+        // an adjacent-tolerance. Without this the giver delivers the
+        // gift to the recipient's STALE spot from when fetchPropFromEdge
+        // started, often visibly far from where the recipient currently
+        // stands. Capped so a recipient that keeps moving away (e.g.
+        // pacing) doesn't trap the giver in an infinite pursuit.
+        final int adjacentTol = Math.max(8, petW / 4);
+        final int maxChases = 6;
+        boolean fromLeft = false;
+        for (int attempt = 0; attempt < maxChases; attempt++) {
+            if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
+            if (other.frame == null) { clearProp(); return; }
+            int otherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+            fromLeft = logicalLocation().x + petW / 2 < otherMid;
+            int targetX = fromLeft
+                    ? otherMid - other.effectiveWidth() / 2 - petW
+                    : otherMid + other.effectiveWidth() / 2;
+            Rectangle monC = currentMonitorBounds();
+            targetX = Math.max(monC.x, Math.min(monC.x + monC.width - petW, targetX));
+            walkAlongFloor(world, targetX);
+            if (interrupted() || hovered || clicked.get()) { clearProp(); return; }
+            if (other.frame == null) { clearProp(); return; }
+            int myMid = logicalLocation().x + petW / 2;
+            int curOtherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+            int gap = Math.abs(myMid - curOtherMid) - (petW + other.effectiveWidth()) / 2;
+            if (gap <= adjacentTol) break;
+        }
+        // Recompute facing from FINAL positions so a recipient who
+        // ended up on the opposite side mid-chase still gets faced
+        // correctly.
+        int finalOtherMid = other.logicalLocation().x + other.effectiveWidth() / 2;
+        fromLeft = logicalLocation().x + petW / 2 < finalOtherMid;
         // Face the sibling so the hand-off reads as deliberate. Mirrors
         // the trick used by peeTree: apply the first frame of the
         // walk-cycle pointing the right way, then sit on it briefly.
@@ -2724,10 +2770,16 @@ public abstract class Pet implements Runnable {
         int petW = effectiveWidth();
         int myMid = logicalLocation().x + petW / 2;
         int ballMid = ball.centerX();
-        int kickRange = petW / 2 + ball.width() / 2 + 6;
+        // Edge-to-edge gap between pet bbox and ball bbox along X. Use
+        // this (not center distance) to decide whether we're adjacent
+        // enough to kick â€” otherwise a large pet next to a small ball
+        // could "kick from a distance" because center-to-center is still
+        // within the combined-radii sum even when the bboxes don't
+        // touch.
+        int edgeGap = Math.abs(ballMid - myMid) - (petW + ball.width()) / 2;
         int dx = ballMid - myMid;
 
-        if (Math.abs(dx) <= kickRange) {
+        if (edgeGap <= 4) {
             boolean ballMovingAway =
                     (dx > 0 && ball.vx() > 0) || (dx < 0 && ball.vx() < 0);
             if (ballMovingAway && !ball.isAtRest()) {
@@ -2772,8 +2824,16 @@ public abstract class Pet implements Runnable {
         }
 
         // Not close enough â€” run toward the ball's current column.
+        // Aim so the pet's NEAR edge lines up beside the ball, not so its
+        // center overlaps the ball's center. Otherwise the pet ran "into"
+        // the ball and kicked from an overlap, which read as "pet not
+        // standing where the ball is but kicking anyway".
         Rectangle mon = currentMonitorBounds();
-        int targetX = ballMid - petW / 2;
+        int ballLeft  = ballMid - ball.width() / 2;
+        int ballRight = ballMid + ball.width() / 2;
+        int targetX = (dx >= 0)
+                ? ballLeft - petW      // approach from the left â†’ stop just left of ball
+                : ballRight;           // approach from the right â†’ stop just right of ball
         targetX = Math.max(mon.x, Math.min(mon.x + mon.width - petW, targetX));
         runAlongFloor(world, targetX);
     }
@@ -3015,79 +3075,107 @@ public abstract class Pet implements Runnable {
         if (frame == null || disposed) {
             return;
         }
+        // Cheap no-op fast path: pet threads call moveFrameTo every
+        // behaviour tick even when nothing moves (idle holds, sit,
+        // sleep). Skipping the CAS + invokeLater when the intended
+        // position is unchanged saves a substantial amount of churn for
+        // stationary pets.
+        if (intendedX == this.intendedX && intendedY == this.intendedY) {
+            return;
+        }
         // Record the intended logical position FIRST so logicalLocation()
         // is always up to date even if the EDT call below is deferred or
         // the frame ends up hidden (visible width = 0).
         this.intendedX = intendedX;
         this.intendedY = intendedY;
-        Rectangle mon = activeMonitor;
-        MonitorClipper.Clip clip = MonitorClipper.clip(intendedX, intendedY, petSize, mon);
+        // Coalesce: at most ONE drainMoveOnEdt runnable per pet may be
+        // queued at a time. The pet thread may call moveFrameTo at full
+        // tilt (10..30 Hz), but the drainer reads the latest intendedX/Y
+        // when it actually runs. This bounds the EDT queue to at most N
+        // (one runnable per pet) regardless of how fast pet threads tick,
+        // which was the root cause of EDT saturation with 15+ pets:
+        // Window.setBounds is a synchronous native SetWindowPos call and
+        // can take 1-3 ms each, so an uncoalesced queue grew faster than
+        // it drained and the sprites visibly "froze" for seconds at a
+        // time. See the VisualVM profile dated 2026-05-26.
+        if (moveQueued.compareAndSet(false, true)) {
+            onEdt(this::drainMoveOnEdt);
+        }
+    }
+
+    private final AtomicBoolean moveQueued = new AtomicBoolean(false);
+
+    /** EDT-only drainer for {@link #moveFrameTo}. Reads the latest
+     *  intendedX/Y/activeMonitor/petSize snapshot and applies it via
+     *  setBounds or (preferred when no clip-induced resize) setLocation.
+     *  Skips entirely when the resulting bounds are identical to what
+     *  was last pushed to the native window. */
+    private void drainMoveOnEdt() {
+        // Reset the queued flag FIRST so any moveFrameTo call that
+        // arrives during this run will re-enqueue and pick up its newer
+        // target on the next drain.
+        moveQueued.set(false);
+        if (disposed || frame == null) {
+            return;
+        }
+        final int x = this.intendedX;
+        final int y = this.intendedY;
+        final Rectangle mon = activeMonitor;
+        final int sz = petSize;
         if (mon == null) {
             // Unclipped fast path: pet isn't bound to a monitor yet.
-            if (intendedX == lastAppliedX && intendedY == lastAppliedY
-                    && lastAppliedW == petSize && lastAppliedH == petSize
+            if (x == lastAppliedX && y == lastAppliedY
+                    && lastAppliedW == sz && lastAppliedH == sz
                     && lastAppliedOffX == 0 && lastAppliedOffY == 0
                     && !lastAppliedHidden) {
                 return;
             }
-            lastAppliedX = intendedX; lastAppliedY = intendedY;
-            lastAppliedW = petSize;  lastAppliedH = petSize;
-            lastAppliedOffX = 0;     lastAppliedOffY = 0;
+            lastAppliedX = x; lastAppliedY = y;
+            lastAppliedW = sz; lastAppliedH = sz;
+            lastAppliedOffX = 0; lastAppliedOffY = 0;
             lastAppliedHidden = false;
-            onEdt(() -> { if (!disposed) frame.setLocation(intendedX, intendedY); });
+            frame.setLocation(x, y);
             return;
         }
+        MonitorClipper.Clip clip = MonitorClipper.clip(x, y, sz, mon);
         final boolean hidden = clip.hidden();
+        if (hidden) {
+            if (lastAppliedHidden) {
+                return;
+            }
+            lastAppliedHidden = true;
+            if (frame.isVisible()) {
+                frame.setVisible(false);
+            }
+            return;
+        }
         final Rectangle b = clip.bounds();
         final int offX = clip.offsetX();
         final int offY = clip.offsetY();
-        // Coalesce: skip the EDT round-trip + native SetWindowPos if the
-        // exact same bounds + label offset + visibility are already
-        // applied. With N pets each ticking at ~20 Hz, Window.setBounds is
-        // the dominant EDT cost (profiled at ~100% AWT-EventQueue-0 on a
-        // roster of 15 pets); this fast path turns most ticks into a no-op
-        // when the pet is briefly idle or playing a "hold pose" frame.
-        if (!hidden
+        if (!lastAppliedHidden
                 && b.x == lastAppliedX && b.y == lastAppliedY
                 && b.width == lastAppliedW && b.height == lastAppliedH
-                && offX == lastAppliedOffX && offY == lastAppliedOffY
-                && !lastAppliedHidden) {
-            return;
-        }
-        if (hidden && lastAppliedHidden) {
+                && offX == lastAppliedOffX && offY == lastAppliedOffY) {
             return;
         }
         lastAppliedX = b.x; lastAppliedY = b.y;
         lastAppliedW = b.width; lastAppliedH = b.height;
         lastAppliedOffX = offX; lastAppliedOffY = offY;
-        lastAppliedHidden = hidden;
+        lastAppliedHidden = false;
         // Use the cheaper Window.setLocation when the frame is fully
         // inside the monitor (no clip-induced resize): native
         // SetWindowPos with SWP_NOSIZE is significantly cheaper than the
         // full setBounds path on Windows.
-        final boolean sameSize = !hidden
-                && b.width == petSize && b.height == petSize
-                && offX == 0 && offY == 0;
-        onEdt(() -> {
-            if (disposed) {
-                return;
-            }
-            if (hidden) {
-                if (frame.isVisible()) {
-                    frame.setVisible(false);
-                }
-                return;
-            }
-            if (sameSize && frame.getWidth() == petSize && frame.getHeight() == petSize) {
-                frame.setLocation(b.x, b.y);
-            } else {
-                frame.setBounds(b.x, b.y, b.width, b.height);
-                applyLabelOffset(offX, offY);
-            }
-            if (!frame.isVisible()) {
-                frame.setVisible(true);
-            }
-        });
+        if (b.width == sz && b.height == sz && offX == 0 && offY == 0
+                && frame.getWidth() == sz && frame.getHeight() == sz) {
+            frame.setLocation(b.x, b.y);
+        } else {
+            frame.setBounds(b.x, b.y, b.width, b.height);
+            applyLabelOffset(offX, offY);
+        }
+        if (!frame.isVisible()) {
+            frame.setVisible(true);
+        }
     }
 
     /** Last bounds / label offset / visibility actually pushed to the
@@ -3835,7 +3923,12 @@ public abstract class Pet implements Runnable {
         }
         try {
             String first = idleFrames().get(0);
-            onEdt(() -> applySprite(first));
+            // Force a re-render at the label's current pixel size: bypass
+            // the applySprite dedupe by clearing lastPetSpriteKey first.
+            onEdt(() -> {
+                this.lastPetSpriteKey = null;
+                applySprite(first);
+            });
         } catch (Throwable t) {
             // ignore - sprite refresh is best-effort
         }

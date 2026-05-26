@@ -7,7 +7,7 @@
       <stop offset="100%" stop-color="#7a0d0d"/>
     </radialGradient>
   </defs>
-  <ellipse cx="50" cy="82" rx="28" ry="6" fill="#000" opacity="0.25"/>
-  <circle cx="50" cy="55" r="32" fill="url(#ball)"/>
-  <path d="M18 55 Q50 35 82 55" stroke="#fff" stroke-width="2" fill="none" opacity="0.5"/>
+  <ellipse cx="50" cy="97" rx="28" ry="3" fill="#000" opacity="0.25"/>
+  <circle cx="50" cy="68" r="32" fill="url(#ball)"/>
+  <path d="M18 68 Q50 48 82 68" stroke="#fff" stroke-width="2" fill="none" opacity="0.5"/>
 </svg>
