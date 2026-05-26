@@ -44,26 +44,44 @@ public final class Ball {
     private static final AtomicReference<Ball> ACTIVE = new AtomicReference<>();
 
     /**
-     * Wall-clock instant of the last {@link #dispose()} call across the
-     * whole process, used to gate {@link Activities#PLAY_BALL} via
-     * {@link #playCooldownRemainingMs()}. Zero means "never played yet".
+     * Wall-clock instant of the last {@link #dispose()} call, keyed by
+     * the monitor the finished session ran on. Used to gate
+     * {@link Activities#PLAY_BALL} via
+     * {@link #playCooldownRemainingMs(Rectangle)}. A missing key means
+     * "never played yet on that monitor".
      *
-     * <p>Why a <i>global</i> (not per-pet) cooldown: PLAY_BALL is a
+     * <p>Per-monitor (not global) so a finished session on one screen
+     * doesn't silence pets on another screen — each monitor has its own
+     * independent quiet period.
+     *
+     * <p>Why <i>per-monitor</i> (not per-pet): PLAY_BALL is a
      * world-level activity — once one pet kicks off a ball, every pet on
-     * the same monitor joins the scrum via {@link Pet#chaseBall}. The
-     * per-pet cooldown in {@link BehaviorEngine} therefore collapses with
-     * N pets (each rolls independently, so the wait between sessions
-     * shrinks to ~cooldown/N and the screen never gets a quiet gap).
-     * A global cooldown gives a guaranteed calm window between play
-     * sessions regardless of pet count.
+     * the same monitor joins the scrum via {@link Pet#chaseBall}. A
+     * per-pet cooldown in {@link BehaviorEngine} collapses with N pets on
+     * the same screen (each rolls independently, so the wait between
+     * sessions shrinks to ~cooldown/N and that screen never gets a quiet
+     * gap). A per-monitor cooldown gives each screen a guaranteed calm
+     * window between play sessions regardless of pet count, without
+     * coupling unrelated screens together.
      */
-    private static final java.util.concurrent.atomic.AtomicLong LAST_FINISHED_MS =
-            new java.util.concurrent.atomic.AtomicLong(0L);
+    private static final java.util.concurrent.ConcurrentHashMap<String, Long>
+            LAST_FINISHED_MS_BY_MONITOR =
+                    new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** Global quiet period after a play session ends before another ball
-     *  may spawn. Refreshed every time a ball is disposed (i.e. each
-     *  finished play session restarts the 2-minute countdown). */
+    /** Per-monitor quiet period after a play session ends before another
+     *  ball may spawn on that same monitor. Refreshed every time a ball
+     *  is disposed (i.e. each finished play session restarts the
+     *  countdown for the monitor it ran on). */
     private static final long PLAY_COOLDOWN_MS = 120_000L;
+
+    /** Stable map key for a monitor rectangle. Rectangle.equals already
+     *  compares x/y/width/height, but using a string key keeps the map
+     *  immune to any future mutation of a stored Rectangle by the caller. */
+    private static String monitorKey(Rectangle m) {
+        return m == null
+                ? "null"
+                : m.x + "," + m.y + "," + m.width + "," + m.height;
+    }
 
     /** Pets notice the ball within this many logical pixels horizontally. */
     public static final int INTEREST_RADIUS = 1400;
@@ -154,8 +172,8 @@ public final class Ball {
     /** Hard cap on the ending wind-down phase. If the ball somehow gets
      *  wedged (e.g. floor at monitor edge climbs above the ball), force
      *  dispose after this long so the play session can't be stuck open
-     *  visually even though LAST_FINISHED_MS already started the
-     *  cooldown. */
+     *  visually even though the monitor's cooldown entry was already
+     *  written. */
     private static final long END_PHASE_TIMEOUT_MS = 6_000L;
 
     private JFrame frame;
@@ -287,11 +305,12 @@ public final class Ball {
      * (see {@link #active()}) so the rolling ball can escape without
      * being re-kicked.
      *
-     * <p>Refreshes {@link #LAST_FINISHED_MS} <i>now</i> (not at final
-     * dispose) so the global {@link #PLAY_COOLDOWN_MS} starts ticking
-     * at the moment of decision — otherwise pets could potentially roll
-     * PLAY_BALL again the moment the rolling ball cleared the screen,
-     * which would visually overlap two play sessions.
+     * <p>Records the per-monitor finish time <i>now</i> (not at final
+     * dispose) so this monitor's {@link #PLAY_COOLDOWN_MS} starts
+     * ticking at the moment of decision — otherwise pets could
+     * potentially roll PLAY_BALL again the moment the rolling ball
+     * cleared the screen, which would visually overlap two play
+     * sessions.
      */
     public void beginEndPlay() {
         if (ending || disposed) {
@@ -299,7 +318,7 @@ public final class Ball {
         }
         ending = true;
         endingStartedAtMs = System.currentTimeMillis();
-        LAST_FINISHED_MS.set(endingStartedAtMs);
+        LAST_FINISHED_MS_BY_MONITOR.put(monitorKey(monitor), endingStartedAtMs);
 
         // Pick the exit direction: kick toward the NEAREST monitor edge so
         // the wind-down is short. If the ball is already moving with
@@ -323,7 +342,7 @@ public final class Ball {
 
     /** Dispose the ball window and clear the global slot. Idempotent.
      *
-     *  <p>Also refreshes {@link #LAST_FINISHED_MS} as a safety net for
+     *  <p>Also records this monitor's finish time as a safety net for
      *  callers that dispose the ball directly without going through
      *  {@link #beginEndPlay()} (e.g. the constructor failure path or a
      *  pre-emptive replace in {@link #spawn}); the normal
@@ -334,7 +353,7 @@ public final class Ball {
         }
         disposed = true;
         ACTIVE.compareAndSet(this, null);
-        LAST_FINISHED_MS.set(System.currentTimeMillis());
+        LAST_FINISHED_MS_BY_MONITOR.put(monitorKey(monitor), System.currentTimeMillis());
         if (tickThread != null) {
             tickThread.interrupt();
         }
@@ -347,18 +366,24 @@ public final class Ball {
     }
 
     /**
-     * Milliseconds remaining on the global post-play quiet period, or 0
-     * if a new ball may spawn immediately. A ball that is currently in
-     * play ({@link #active()} non-null) also returns 0 — the cooldown
-     * only blocks <i>spawning a new</i> ball, it never blocks chasing
-     * one that already exists.
+     * Milliseconds remaining on {@code monitor}'s post-play quiet period,
+     * or 0 if a new ball may spawn on that monitor immediately. A ball
+     * currently in play on this monitor ({@link #active()} non-null and
+     * on the same monitor) also returns 0 — the cooldown only blocks
+     * <i>spawning a new</i> ball, it never blocks chasing one that
+     * already exists on the same screen.
+     *
+     * <p>An active ball on a <i>different</i> monitor does <b>not</b>
+     * suppress this monitor's cooldown — each screen runs its play
+     * sessions and quiet periods independently.
      */
-    public static long playCooldownRemainingMs() {
-        if (active() != null) {
+    public static long playCooldownRemainingMs(Rectangle monitor) {
+        Ball act = active();
+        if (act != null && act.monitor.equals(monitor)) {
             return 0L;
         }
-        long last = LAST_FINISHED_MS.get();
-        if (last == 0L) {
+        Long last = LAST_FINISHED_MS_BY_MONITOR.get(monitorKey(monitor));
+        if (last == null) {
             return 0L;
         }
         long elapsed = System.currentTimeMillis() - last;

@@ -72,16 +72,21 @@ public final class Activities {
                 if (world.taskbar() == null) {
                     return 0;
                 }
-                // Global post-play quiet period: once a ball play session
-                // ends (Ball.dispose) no pet may roll a new PLAY_BALL for
-                // Ball.PLAY_COOLDOWN_MS. Without this gate the per-pet
-                // BehaviorEngine cooldown collapses to ~cooldown/N with N
-                // pets (each rolls independently) and the screen never
-                // gets a calm gap. An already-active ball bypasses the
-                // gate (playCooldownRemainingMs returns 0 in that case)
-                // so latecomers can still join an in-progress scrum via
+                // Per-monitor post-play quiet period: once a ball play
+                // session ends (Ball.dispose) no pet on the SAME monitor
+                // may roll a new PLAY_BALL for Ball.PLAY_COOLDOWN_MS.
+                // Pets on other monitors are unaffected — each screen
+                // has its own independent quiet period.
+                //
+                // Without this gate the per-pet BehaviorEngine cooldown
+                // collapses to ~cooldown/N with N pets on the same
+                // screen (each rolls independently) and the screen never
+                // gets a calm gap. An already-active ball on this
+                // monitor bypasses the gate
+                // (playCooldownRemainingMs returns 0 in that case) so
+                // latecomers can still join an in-progress scrum via
                 // PLAY_BALL → playBall → chaseBall.
-                if (Ball.playCooldownRemainingMs() > 0) {
+                if (Ball.playCooldownRemainingMs(pet.currentMonitorBounds()) > 0) {
                     return 0;
                 }
                 double b = pet.needs.get(Need.BOREDOM);

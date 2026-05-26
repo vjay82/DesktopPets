@@ -2695,21 +2695,25 @@ public abstract class Pet implements Runnable {
      * each kick.
      */
     public void playBall(World world) {
-        // Don't double-spawn: if a ball already exists, just chase it.
+        Rectangle mon = currentMonitorBounds();
+        // Don't double-spawn: if a ball already exists on THIS monitor,
+        // just chase it. A ball on a different monitor doesn't concern
+        // us \u2014 each screen runs its own independent play session.
         Ball existing = Ball.active();
         if (existing != null) {
-            chaseBall(world, existing);
+            if (existing.monitor().equals(mon)) {
+                chaseBall(world, existing);
+            }
             return;
         }
-        // Honour the global post-play quiet period even when this method
-        // is invoked outside the normal Activities.PLAY_BALL priority
-        // gate (e.g. future direct callers / tests). Without an active
-        // ball to chase, just idle out the activity.
-        if (Ball.playCooldownRemainingMs() > 0) {
+        // Honour this monitor's post-play quiet period even when this
+        // method is invoked outside the normal Activities.PLAY_BALL
+        // priority gate (e.g. future direct callers / tests). Without an
+        // active ball to chase, just idle out the activity.
+        if (Ball.playCooldownRemainingMs(mon) > 0) {
             return;
         }
 
-        Rectangle mon = currentMonitorBounds();
         int petW = effectiveWidth();
         Point myLoc = logicalLocation();
         int myMid = myLoc.x + petW / 2;
@@ -2767,24 +2771,46 @@ public abstract class Pet implements Runnable {
      */
     public final void chaseBall(World world, Ball ball) {
         ball.noteInterest();
-        int petW = effectiveWidth();
-        int myMid = logicalLocation().x + petW / 2;
+        // Use the SPRITE'S opaque bbox, not the JFrame size. The frame is
+        // petSize x petSize but the actual pet body is a transparent-
+        // padded subregion of that (varies per species/pose: a dog with
+        // a long tail has a wider body than a sitting cat, etc.). If we
+        // measured kick distance from frame edges, a pet would "kick
+        // from a distance" by the width of its transparent padding.
+        Rectangle body = bodyBoundsOnScreen();
+        int petW = body.width;
+        int petH = body.height;
+        int myMid = body.x + petW / 2;
         int ballMid = ball.centerX();
-        // Edge-to-edge gap between pet bbox and ball bbox along X. Use
-        // this (not center distance) to decide whether we're adjacent
+        // Edge-to-edge gap between pet body bbox and ball bbox along X.
+        // Use this (not center distance) to decide whether we're adjacent
         // enough to kick â€” otherwise a large pet next to a small ball
         // could "kick from a distance" because center-to-center is still
         // within the combined-radii sum even when the bboxes don't
         // touch.
         int edgeGap = Math.abs(ballMid - myMid) - (petW + ball.width()) / 2;
         int dx = ballMid - myMid;
+        // Vertical alignment gate: the pet's feet must be on (or very
+        // near) the same floor as the ball's bottom. Without this, a pet
+        // standing on a window perch or the taskbar could "kick" a ball
+        // rolling along the desktop floor far below it whenever their X
+        // columns happened to align ("pets kick the ball when they are
+        // not standing on top of it"). Tolerance scales with the pet so
+        // bigger pets get a bigger reach.
+        int myFeetY = body.y + petH;
+        int ballBottomY = ball.centerY() + ball.width() / 2;
+        int yTol = Math.max(8, petH / 4);
+        boolean sameFloor = Math.abs(myFeetY - ballBottomY) <= yTol;
 
-        if (edgeGap <= 4) {
+        if (edgeGap <= 4 && sameFloor) {
             boolean ballMovingAway =
                     (dx > 0 && ball.vx() > 0) || (dx < 0 && ball.vx() < 0);
             if (ballMovingAway && !ball.isAtRest()) {
                 // Ball is fleeing â€” let it; just face it and pause briefly.
-                applySprite((dx >= 0 ? walkRightFrames() : walkLeftFrames()).get(0));
+                List<String> faceFrames = (dx >= 0) ? walkRightFrames() : walkLeftFrames();
+                if (!faceFrames.isEmpty()) {
+                    applySprite(faceFrames.get(0));
+                }
                 sleepInterruptible(120);
                 return;
             }
@@ -2803,7 +2829,10 @@ public abstract class Pet implements Runnable {
                 Rectangle mon = currentMonitorBounds();
                 kickRight = (ballMid - mon.x) < (mon.x + mon.width - ballMid);
             }
-            applySprite((kickRight ? walkRightFrames() : walkLeftFrames()).get(0));
+            List<String> kickFaceFrames = kickRight ? walkRightFrames() : walkLeftFrames();
+            if (!kickFaceFrames.isEmpty()) {
+                applySprite(kickFaceFrames.get(0));
+            }
             showEmote("paw", 180);
             final boolean kickRightFinal = kickRight;
             // 3-frame leg-swing wind-up before the impulse, so the kick
@@ -2824,17 +2853,26 @@ public abstract class Pet implements Runnable {
         }
 
         // Not close enough â€” run toward the ball's current column.
-        // Aim so the pet's NEAR edge lines up beside the ball, not so its
-        // center overlaps the ball's center. Otherwise the pet ran "into"
-        // the ball and kicked from an overlap, which read as "pet not
-        // standing where the ball is but kicking anyway".
+        // Aim so the pet's BODY CENTER lands on the ball center, so the
+        // sprite visibly stands on top of / overlaps the ball when it
+        // arrives instead of stopping next-to or beneath it ("pets stand
+        // beneath the ball when kicking â€” let the sprites overlap").
+        // We compensate for the body's offset within its frame; if we
+        // aimed the FRAME center at the ball, the body would land
+        // {leftPad - rightPad}/2 pixels off-center.
         Rectangle mon = currentMonitorBounds();
-        int ballLeft  = ballMid - ball.width() / 2;
-        int ballRight = ballMid + ball.width() / 2;
-        int targetX = (dx >= 0)
-                ? ballLeft - petW      // approach from the left â†’ stop just left of ball
-                : ballRight;           // approach from the right â†’ stop just right of ball
-        targetX = Math.max(mon.x, Math.min(mon.x + mon.width - petW, targetX));
+        int frameW = petLabel.getWidth();
+        if (frameW <= 0) {
+            frameW = petSize;
+        }
+        int leftPad = body.x - logicalLocation().x;
+        // Same target regardless of approach direction â€” we want full
+        // overlap, not edge alignment. runAlongFloor handles the facing
+        // direction (pet faces the way it walks); the subsequent kick
+        // block then re-faces the pet toward the kick direction via
+        // applySprite(walkRight/LeftFrames.get(0)).
+        int targetX = ballMid - petW / 2 - leftPad;
+        targetX = Math.max(mon.x, Math.min(mon.x + mon.width - frameW, targetX));
         runAlongFloor(world, targetX);
     }
 
@@ -3455,6 +3493,38 @@ public abstract class Pet implements Runnable {
     public final int effectiveHeight() {
         int h = petLabel.getHeight();
         return h > 0 ? h : petSize;
+    }
+
+    /**
+     * Tight bounding box of the pet's currently-rendered body in logical
+     * screen coordinates, computed from the opaque pixels of the active
+     * sprite (so the transparent margins around the body are excluded).
+     *
+     * <p>Used by physics/proximity code that would otherwise reach "too
+     * far" using the full {@code petSize x petSize} frame. Falls back to
+     * the full frame rectangle when no icon is set yet (early ticks).
+     */
+    public final Rectangle bodyBoundsOnScreen() {
+        java.awt.Point loc = logicalLocation();
+        int frameX = loc.x;
+        int frameY = loc.y;
+        int labelX = petLabel.getX();
+        int labelY = petLabel.getY();
+        int w = effectiveWidth();
+        int h = effectiveHeight();
+        javax.swing.Icon icon = petLabel.getIcon();
+        if (icon == null) {
+            return new Rectangle(frameX + labelX, frameY + labelY, w, h);
+        }
+        Rectangle bb = Sprites.opaqueBounds(icon);
+        if (bb.width <= 0 || bb.height <= 0) {
+            return new Rectangle(frameX + labelX, frameY + labelY, w, h);
+        }
+        return new Rectangle(
+                frameX + labelX + bb.x,
+                frameY + labelY + bb.y,
+                bb.width,
+                bb.height);
     }
 
     /**

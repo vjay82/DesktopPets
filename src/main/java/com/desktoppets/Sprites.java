@@ -1,17 +1,22 @@
 package com.desktoppets;
 
 import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
+import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
@@ -36,6 +41,16 @@ final class Sprites {
 
     private static final Map<String, Object> SOURCE_CACHE = new ConcurrentHashMap<>();
     private static final Map<ScaledKey, ImageIcon> SCALED_CACHE = new ConcurrentHashMap<>();
+
+    /**
+     * Cache of opaque-pixel bounding boxes per rendered {@link Image}. Pet
+     * and ball sprites are drawn into a square frame with transparent
+     * padding around the actual body; physics/proximity checks need the
+     * tight body bbox, not the whole frame. Weak-keyed so entries clear
+     * when the underlying icon is evicted from {@link #SCALED_CACHE}.
+     */
+    private static final Map<Image, Rectangle> OPAQUE_BOUNDS_CACHE =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private Sprites() {
     }
@@ -172,6 +187,83 @@ final class Sprites {
             g.dispose();
         }
         return failed ? MISSING : new ImageIcon(buffer);
+    }
+
+    /**
+     * Tight bounding box of the icon's opaque pixels (alpha {@literal >} 0)
+     * in icon-pixel coordinates. Used to translate a frame-relative
+     * position into an actual body position for hit-tests / proximity
+     * checks. Returns the full icon bounds if the icon is null, empty,
+     * fully transparent, or not backed by a sampleable {@link Image}.
+     *
+     * <p>Result is cached per {@link Image} instance; the cache is
+     * weak-keyed so it shrinks naturally as scaled icons are evicted.
+     */
+    static Rectangle opaqueBounds(Icon icon) {
+        if (!(icon instanceof ImageIcon ii)) {
+            return icon == null ? new Rectangle()
+                    : new Rectangle(icon.getIconWidth(), icon.getIconHeight());
+        }
+        Image img = ii.getImage();
+        if (img == null) {
+            return new Rectangle(ii.getIconWidth(), ii.getIconHeight());
+        }
+        Rectangle cached = OPAQUE_BOUNDS_CACHE.get(img);
+        if (cached != null) {
+            return cached;
+        }
+        Rectangle r;
+        if (img instanceof BufferedImage bi) {
+            r = computeOpaqueBounds(bi);
+        } else {
+            r = new Rectangle(ii.getIconWidth(), ii.getIconHeight());
+        }
+        OPAQUE_BOUNDS_CACHE.put(img, r);
+        return r;
+    }
+
+    private static Rectangle computeOpaqueBounds(BufferedImage img) {
+        int w = img.getWidth();
+        int h = img.getHeight();
+        if (w <= 0 || h <= 0) {
+            return new Rectangle();
+        }
+        int[] row = new int[w];
+        int minX = w;
+        int maxX = -1;
+        int minY = h;
+        int maxY = -1;
+        for (int y = 0; y < h; y++) {
+            img.getRGB(0, y, w, 1, row, 0, w);
+            int rowMinX = -1;
+            int rowMaxX = -1;
+            for (int x = 0; x < w; x++) {
+                if ((row[x] >>> 24) != 0) {
+                    if (rowMinX < 0) {
+                        rowMinX = x;
+                    }
+                    rowMaxX = x;
+                }
+            }
+            if (rowMaxX >= 0) {
+                if (rowMinX < minX) {
+                    minX = rowMinX;
+                }
+                if (rowMaxX > maxX) {
+                    maxX = rowMaxX;
+                }
+                if (y < minY) {
+                    minY = y;
+                }
+                maxY = y;
+            }
+        }
+        if (maxX < 0) {
+            // Fully transparent â€” fall back to full frame so callers
+            // don't crash on a zero-width bbox.
+            return new Rectangle(w, h);
+        }
+        return new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
     }
 
     private static Object loadSource(String classpathPath) {
