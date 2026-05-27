@@ -18,4 +18,8 @@
 0 -2 -1 -3 -2z"/><path d="M138 70 c-3 -3 0 -6 6 -6 3 0 5 1 7 2 2 3 -1 6 -7 6 -3 0 -5 -1 -6
 -2z"/><path d="M82 14 c-2 -2 -2 -2 0 -4 2 -3 10 -3 13 0 2 3 -1 6 -7 6 -3 0 -5 -1
 -6 -2z"/></g>
-<!-- pee stream + puddle overlay --><g><rect x="15" y="26" width="1" height="2" fill="#f5d04a"/><rect x="16" y="28" width="1" height="2" fill="#f5d04a"/><ellipse cx="18" cy="31" rx="4" ry="1" fill="#f5d04a"/><ellipse cx="18" cy="31" rx="2" ry="0.5" fill="#fff37a"/></g></svg>
+<!-- pee stream + puddle overlay.
+     Cat sits with body filling y=19..30 (paws on ground at y=30).
+     Stream is short and exits from the cat's underside near the
+     rear-right (x=20..21, y=29..30), with the puddle resting just
+     below the cat's paws on the ground (y=31). --><g><rect x="20" y="29" width="1" height="2" fill="#f5d04a"/><ellipse cx="20.5" cy="31" rx="3" ry="0.7" fill="#f5d04a"/><ellipse cx="20.5" cy="31" rx="1.5" ry="0.35" fill="#fff37a"/></g></svg>

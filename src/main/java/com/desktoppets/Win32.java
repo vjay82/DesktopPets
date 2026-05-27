@@ -143,6 +143,35 @@ public final class Win32 {
                             ValueLayout.JAVA_INT))
             : null;
 
+    /** SetWindowLongPtrA (64-bit) — used to OR in WS_EX_LAYERED |
+     *  WS_EX_TRANSPARENT so the stage window is click-through. */
+    private static final MethodHandle SET_WINDOW_LONG_PTR = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("SetWindowLongPtrA").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_LONG,
+                            ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG))
+            : null;
+
+    /** GetAsyncKeyState — used to detect left mouse button press edges for
+     *  pet click dispatch (the stage window is click-through and can't
+     *  receive mouse events of its own). */
+    private static final MethodHandle GET_ASYNC_KEY_STATE = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("GetAsyncKeyState").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.JAVA_INT))
+            : null;
+
+    /** WS_EX_LAYERED — needed for any per-pixel-alpha / transparent window. */
+    private static final long WS_EX_LAYERED     = 0x00080000L;
+    /** WS_EX_TRANSPARENT — clicks/mouse events pass through to whatever
+     *  is underneath. Combined with WS_EX_LAYERED for true click-through. */
+    private static final long WS_EX_TRANSPARENT = 0x00000020L;
+    /** WS_EX_NOACTIVATE — window never takes activation/focus on click,
+     *  so even if click-through is somehow defeated we don't steal focus. */
+    private static final long WS_EX_NOACTIVATE  = 0x08000000L;
+    /** VK_LBUTTON virtual key code for {@code GetAsyncKeyState}. */
+    public static final int VK_LBUTTON = 0x01;
+
     private static final MethodHandle ENUM_PROC_HANDLE;
     static {
         if (WINDOWS) {
@@ -414,6 +443,50 @@ public final class Win32 {
             SET_WINDOW_POS.invoke(h, MemorySegment.ofAddress(-1L), 0, 0, 0, 0, 0x13);
         } catch (Throwable t) {
             // best-effort; do not spam logs
+        }
+    }
+
+    /**
+     * Turn the given top-level window into a click-through layered window:
+     * OR {@code WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE} into
+     * its extended style. The window remains visible but receives no mouse
+     * events — every click/hover passes through to whatever is underneath.
+     *
+     * <p>Used by the {@link Stage} so the giant transparent canvas covering
+     * the virtual desktop doesn't trap clicks meant for the user's
+     * applications. Pet hover/click is then driven from the cursor poller
+     * ({@link PetMouse}) instead of native window mouse events.
+     */
+    public static void makeClickThrough(long hwnd) {
+        if (!WINDOWS || hwnd == 0L) {
+            return;
+        }
+        try {
+            MemorySegment h = MemorySegment.ofAddress(hwnd);
+            long ex = (long) GET_WINDOW_LONG_PTR.invoke(h, GWL_EXSTYLE);
+            long want = ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+            if (want != ex) {
+                SET_WINDOW_LONG_PTR.invoke(h, GWL_EXSTYLE, want);
+            }
+        } catch (Throwable t) {
+            Log.warn("win32", "makeClickThrough failed: " + t);
+        }
+    }
+
+    /**
+     * {@code true} iff the high-order bit of {@code GetAsyncKeyState(vk)} is
+     * set, i.e. the key/mouse-button is currently down. Always returns
+     * {@code false} on non-Windows or on FFM errors.
+     */
+    public static boolean isKeyDown(int vk) {
+        if (!WINDOWS) {
+            return false;
+        }
+        try {
+            short s = (short) GET_ASYNC_KEY_STATE.invoke(vk);
+            return (s & 0x8000) != 0;
+        } catch (Throwable t) {
+            return false;
         }
     }
 

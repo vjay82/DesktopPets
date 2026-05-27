@@ -19,6 +19,11 @@ public final class Main {
         // history independent of which activity each pet is currently
         // running.
         World.startCursorSampler();
+        // Stage windows are click-through (so they don't trap user input);
+        // hover/click on pets is delivered by polling the cursor + button
+        // state in PetMouse and dispatching to whichever pet is under the
+        // pointer at press time.
+        PetMouse.start();
         PetSupervisor supervisor = new PetSupervisor();
         SwingUtilities.invokeLater(() -> new TrayApp(supervisor).install());
         supervisor.reconcile(Config.readPets());

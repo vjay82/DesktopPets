@@ -105,4 +105,9 @@ c-3 3 -6 6 -6 6 0 0 -3 -3 -6 -6z"/><path d="M274 142 c-3 -3 -3 -10 0 -12 3 -3 6 
   <g transform="scale(0.125 0.125) translate(0.000000,512.000000) scale(1.000000,-1.000000)" fill="#afd5d0" stroke="none"><path d="M225 222 c-1 -2 -1 -2 1 -4 l2 -2 2 2 c2 2 2 2 1 4 -1 1 -3 2 -3 2 0
 0 -2 -1 -3 -2z"/><path d="M289 222 c-1 -2 -1 -2 1 -4 l2 -2 2 2 c2 2 2 2 1 4 -1 1 -3 2 -3 2 0
 0 -2 -1 -3 -2z"/></g>
-<!-- pee stream + puddle overlay --><g><rect x="30" y="48" width="2" height="3" fill="#f5d04a"/><rect x="32" y="51" width="2" height="3" fill="#f5d04a"/><rect x="34" y="54" width="2" height="3" fill="#f5d04a"/><ellipse cx="38" cy="58" rx="8" ry="2" fill="#f5d04a"/><ellipse cx="38" cy="58" rx="4" ry="1" fill="#fff37a"/></g></svg>
+<!-- pee stream + puddle overlay.
+       Ducky stands with feet at y=47 (between the two visible
+       webbed feet at x~24 and x~38). The stream is short and
+       comes from under the body; the puddle sits just below the
+       feet so it visually belongs to the ducky, not floating
+       below it. --><g><rect x="29" y="46" width="2" height="2" fill="#f5d04a"/><ellipse cx="30" cy="49" rx="6" ry="1.3" fill="#f5d04a"/><ellipse cx="30" cy="49" rx="3" ry="0.7" fill="#fff37a"/></g></svg>

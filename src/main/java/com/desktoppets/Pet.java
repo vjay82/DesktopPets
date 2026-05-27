@@ -1,6 +1,5 @@
 package com.desktoppets;
 
-import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
@@ -9,9 +8,6 @@ import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseListener;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,8 +17,6 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import javax.swing.ImageIcon;
-import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
 
@@ -58,8 +52,12 @@ public abstract class Pet implements Runnable {
     private static final int LOOK_HOLD_MS     = 500;
 
     public final Dimension screen = detectScreenSize();
-    /** Created on the EDT in {@link #initOnEdt()}; null until {@link #run()} starts. */
-    public JFrame frame;
+    /** Created on the EDT in {@link #initOnEdt()}; null until {@link #run()} starts.
+     *  Backed by a {@link Stage}-owned JPanel rather than a top-level JFrame:
+     *  every pet shares one transparent click-through window per monitor so
+     *  movement is a cheap intra-window component move instead of an
+     *  {@code SetWindowPos} per pet per tick. */
+    public PetWindow frame;
     /** Set by {@link #disposeWindow()} before the EDT dispose runs so any
      *  behaviour-thread {@link #moveFrameTo} call that races with shutdown
      *  doesn't resurrect the JFrame peer via {@code setVisible(true)}. */
@@ -189,7 +187,6 @@ public abstract class Pet implements Runnable {
     }
 
     private Thread heartThread = new Thread();
-    private MouseListener mouseListener;
 
     protected Pet(String name, Personality personality) {
         this.name = name;
@@ -839,9 +836,8 @@ public abstract class Pet implements Runnable {
      * read as "plucked off the perch" rather than a controlled glide.
      *
      * <p>Pet position is allowed to go past the monitor bottom; the
-     * {@link MonitorClipper} inside {@link #moveFrameTo} hides the frame
-     * automatically once it's fully off the screen, so we get a clean
-     * "fell out of view" effect for free.
+     * {@link Stage} canvas clips the panel at the monitor boundary, so
+     * we get a clean "fell out of view" effect for free.
      */
     private void fallOutAndExit() {
         Rectangle mon = currentMonitorBounds();
@@ -930,9 +926,9 @@ public abstract class Pet implements Runnable {
      *   <li><b>Near a monitor side edge</b> (within
      *       {@value #EDGE_RUN_OFF_DIST_PX} px of the nearer left/right
      *       edge) \u2014 run off that edge horizontally via
-     *       {@link #runAlongFloor}. The {@link MonitorClipper} inside
-     *       {@link #moveFrameTo} narrows the JFrame at the boundary
-     *       and hides it once the visible width hits 0.</li>
+     *       {@link #runAlongFloor}. The {@link Stage} canvas clips the
+     *       panel at the monitor boundary, so the pet visibly slides off
+     *       and disappears once it's fully outside the canvas.</li>
      *   <li><b>Far from any side</b> \u2014 jump off the closer side
      *       in a parabolic arc that carries the pet up + sideways past
      *       the monitor edge, then let gravity drop it past the bottom
@@ -1209,17 +1205,9 @@ public abstract class Pet implements Runnable {
         // Set BEFORE scheduling the EDT dispose so a racing
         // moveFrameTo() on the behaviour thread (between
         // Thread.interrupt() and the next interrupted() check) bails
-        // out instead of re-showing the now-disposed frame and
-        // creating a zombie window peer.
+        // out instead of re-attaching the now-detached panel.
         disposed = true;
-        // mouseListener removal and frame disposal must both happen on
-        // the EDT â€” Swing component mutation is not safe from the
-        // behaviour thread.
         onEdt(() -> {
-            if (mouseListener != null) {
-                petLabel.removeMouseListener(mouseListener);
-                mouseListener = null;
-            }
             frame.setVisible(false);
             frame.dispose();
         });
@@ -1227,24 +1215,17 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Re-assert {@code HWND_TOPMOST} on this pet's native window. Cheap,
-     * idempotent, and does not steal focus. Called by {@link BehaviorEngine}
-     * once per tick so the pet stays in the topmost band even if another app
-     * (or a focus / mode switch) demotes it.
-     *
-     * <p>Internally throttled to at most one Win32 {@code SetWindowPos} call
-     * per second per pet: the pet thread can tick dozens of times per
-     * second during animation, and on rosters of 10+ pets the unthrottled
-     * per-tick rate measurably contends with the EDT (frames stall, the
-     * embedding app becomes laggy). One reassert per second is plenty to
-     * recover from a focus / mode-switch demotion within a beat.
+     * Re-assert {@code HWND_TOPMOST} on the shared stage windows. Cheap,
+     * idempotent, throttled to once per second per stage inside
+     * {@link Stage#reassertTopmost()}. Called by {@link BehaviorEngine}
+     * once per tick so the pets stay in the topmost band even if another
+     * app (or a focus / mode switch) demotes them.
      */
     public final void reassertTopmost() {
-        if (hwnd == 0L) return;
         long now = System.currentTimeMillis();
         if (now < nextReassertTopmostMs) return;
         nextReassertTopmostMs = now + 1000L;
-        Win32.reassertTopmost(hwnd);
+        Stage.reassertTopmost();
     }
 
     /** Earliest wall-clock time at which {@link #reassertTopmost()} will
@@ -1254,32 +1235,14 @@ public abstract class Pet implements Runnable {
 
     private void initOnEdt() throws InterruptedException, InvocationTargetException {
         Runnable build = () -> {
-            ImageIcon favIcon = Sprites.scaled(doodleKind() + "/idle/0", 32, 32, hueShift);
-
-            frame = new JFrame();
+            // Pet windows are now JPanels hosted by a shared per-monitor
+            // Stage canvas (transparent always-on-top click-through). The
+            // PetWindow wrapper preserves the small slice of the legacy
+            // JFrame API the rest of Pet still uses (setBounds /
+            // setLocation / setVisible / setSize / add); coordinates are
+            // virtual-desktop screen pixels exactly like before.
+            frame = new PetWindow();
             frame.setSize(petSize, petSize);
-            frame.setUndecorated(true);
-            frame.setBackground(new Color(0, 0, 0, 0));
-            frame.setAlwaysOnTop(true);
-            frame.setType(JFrame.Type.UTILITY); // no taskbar entry per pet
-            // Never steal focus from the user's active app when the pet
-            // window is created or shown. Without these, setVisible(true)
-            // raises the JFrame and pulls keyboard focus away from
-            // whatever the user was typing in.
-            frame.setFocusableWindowState(false);
-            frame.setAutoRequestFocus(false);
-            if (favIcon != null) {
-                frame.setIconImage(favIcon.getImage());
-            }
-            // Absolute positioning: layoutLabels() and applyLabelOffset()
-            // call setBounds/setLocation directly, and we don't want the
-            // default BorderLayout to override them (BorderLayout would
-            // stretch petLabel to fill the content pane, and when the
-            // frame is narrowed by edge clipping in moveFrameTo, the
-            // sprite icon would be rendered centered in the smaller
-            // label - looking like the pet was zooming/shrinking instead
-            // of sliding off-screen).
-            frame.setLayout(null);
 
             layoutLabels();
             frame.add(speechLabel);
@@ -1301,7 +1264,7 @@ public abstract class Pet implements Runnable {
                 // intended logical position starts FULLY OUTSIDE the chosen
                 // monitor's entry edge so the first behaviour tick's
                 // walkAlongFloor traverses the full distance with proper
-                // edge clipping (the JFrame slides in from off-screen,
+                // edge clipping (the panel slides in from off-screen,
                 // never straddling two monitors).
                 //
                 // Visitor pets (the wandering bird) can override the random
@@ -1323,11 +1286,9 @@ public abstract class Pet implements Runnable {
                 pendingEntryTargetX = plan.target.x;
                 pendingEntryTargetY = plan.fromAbove ? plan.target.y : null;
                 activeMonitor = plan.monitor;
-                // The native peer needs a non-zero size for setVisible() to
-                // create the HWND we look up below. Use a 1-px-wide (or
-                // 1-px-tall for above-entry) slice flush with the inside
-                // of the entry edge: barely visible, and the first
-                // walkAlongFloor()/walkTo() step will grow it.
+                // 1-px slice flush with the entry edge so the panel is
+                // attached on the correct monitor's stage right away; the
+                // first walkAlongFloor()/walkTo() step will grow it.
                 if (plan.fromAbove) {
                     initialBounds = new Rectangle(plan.target.x, plan.monitor.y, petSize, 1);
                 } else {
@@ -1349,16 +1310,10 @@ public abstract class Pet implements Runnable {
             // otherwise return (0,0) until the first moveFrameTo).
             this.intendedX = firstSetLocation.x;
             this.intendedY = firstSetLocation.y;
-            frame.setBounds(initialBounds.x, initialBounds.y, initialBounds.width, initialBounds.height);
-            // Set a unique title BEFORE setVisible so we can find the native
-            // HWND right after the peer is created and re-assert HWND_TOPMOST
-            // periodically. Undecorated frames don't render the title bar, so
-            // this isn't visible to the user.
-            String uniqueTitle = "DesktopPet-" + name + "-"
-                    + Long.toHexString(System.nanoTime());
-            frame.setTitle(uniqueTitle);
-            frame.setVisible(true);
-            hwnd = Win32.findWindowByTitle(uniqueTitle);
+            // Attach to the stage at the initial 1-px slice. The wrapper
+            // handles screen-coords -> stage-canvas-local translation and
+            // picks the right per-monitor stage window.
+            frame.show(initialBounds.x, initialBounds.y, initialBounds.width, initialBounds.height);
 
             // Force an immediate first frame so the pet is visible without
             // waiting for the behavior loop to tick once.
@@ -1369,16 +1324,10 @@ public abstract class Pet implements Runnable {
                     + " at " + clamped.x + "," + clamped.y
                     + " (screen " + (int) screen.getWidth() + "x" + (int) screen.getHeight()
                     + ")"
-                    + " visible=" + frame.isVisible()
-                    + " onTop=" + frame.isAlwaysOnTop()
-                    + " hwnd=0x" + Long.toHexString(hwnd));
+                    + " visible=" + frame.isVisible());
 
-            mouseListener = new MouseAdapter() {
-                @Override public void mouseClicked(MouseEvent e) { clicked.set(true); }
-                @Override public void mouseEntered(MouseEvent e) { hovered = true; }
-                @Override public void mouseExited(MouseEvent e)  { hovered = false; }
-            };
-            petLabel.addMouseListener(mouseListener);
+            // Hover / click are dispatched by PetMouse (the stage window
+            // is click-through and never receives native mouse events).
         };
         if (SwingUtilities.isEventDispatchThread()) {
             build.run();
@@ -1657,17 +1606,17 @@ public abstract class Pet implements Runnable {
             frame.setSize(petSize, petSize);
             layoutLabels();
             Point clampedLoc = clampToScreen(loc);
-            // Invalidate the moveFrameTo no-op cache: the native frame
-            // size just changed out-of-band, so the next move must
-            // re-issue setBounds even if (x, y) match the previous call.
-            lastAppliedW = -1;
-            lastAppliedH = -1;
             // Bypass moveFrameTo's intendedX/Y fast-path: setSize keeps
             // the same logical position, but we still need to actually
-            // push the new frame size to the OS. Update intendedX/Y
+            // push the new frame size to the stage. Update intendedX/Y
             // directly and drain on the spot (we're already on EDT).
             this.intendedX = clampedLoc.x;
             this.intendedY = clampedLoc.y;
+            // Invalidate the no-op position cache: even when the logical
+            // (x, y) is unchanged the panel size just changed, so the
+            // next drain must re-issue setLocation/setBounds.
+            lastAppliedX = Integer.MIN_VALUE;
+            lastAppliedY = Integer.MIN_VALUE;
             moveQueued.set(true);
             drainMoveOnEdt();
             // Force a sprite re-render at the new label size by
@@ -2434,12 +2383,12 @@ public abstract class Pet implements Runnable {
      * come from off-screen rather than popping into existence under
      * the pet.
      *
-     * <p>The "reach" is implemented by sliding the frame half a
-     * {@link #petSize} past the monitor edge; {@link MonitorClipper}
-     * inside {@link #moveFrameTo} clips the frame so the pet really
-     * does disappear behind the edge for the grab beat. The prop is
-     * attached only after the pet steps back into view, so the user
-     * sees an empty-handed reach followed by a full-handed return.
+     * <p>The "reach" is implemented by sliding the panel half a
+     * {@link #petSize} past the monitor edge; the {@link Stage} canvas
+     * clips it so the pet really does disappear behind the edge for the
+     * grab beat. The prop is attached only after the pet steps back into
+     * view, so the user sees an empty-handed reach followed by a
+     * full-handed return.
      *
      * <p>On any interruption (hover, click, engine shutdown) the
      * partial-off-screen slide is undone before returning so the pet
@@ -3101,13 +3050,11 @@ public abstract class Pet implements Runnable {
 
     /**
      * EDT-safe move of the pet's window to a logical {@code (intendedX,
-     * intendedY)}. When {@link #activeMonitor} is set, the actual JFrame
-     * bounds are clipped to that monitor: the window narrows as the pet
-     * walks off the edge (its sprite is offset inside the smaller frame so
-     * it visibly slides off) and is hidden entirely once fully outside.
-     * This prevents the frame from ever straddling two monitors, which on
-     * misaligned multi-monitor setups would otherwise let the pet appear
-     * mid-screen on the neighbouring monitor.
+     * intendedY)} in virtual-desktop coordinates. The pet's panel lives
+     * on a per-monitor {@link Stage} canvas; {@link PetWindow#setLocation}
+     * routes the screen point to the matching stage and Swing clips the
+     * panel to the canvas bounds, so the pet visibly slides off a monitor
+     * edge without ever straddling two monitors.
      */
     public final void moveFrameTo(int intendedX, int intendedY) {
         if (frame == null || disposed) {
@@ -3144,10 +3091,12 @@ public abstract class Pet implements Runnable {
     private final AtomicBoolean moveQueued = new AtomicBoolean(false);
 
     /** EDT-only drainer for {@link #moveFrameTo}. Reads the latest
-     *  intendedX/Y/activeMonitor/petSize snapshot and applies it via
-     *  setBounds or (preferred when no clip-induced resize) setLocation.
-     *  Skips entirely when the resulting bounds are identical to what
-     *  was last pushed to the native window. */
+     *  intendedX/Y/petSize snapshot and applies it via
+     *  {@link PetWindow#setLocation(int, int)} (which routes through the
+     *  {@link Stage} canvas; Swing clips the panel to the stage canvas
+     *  bounds automatically, so no per-pet clipping is needed).
+     *  Skips entirely when the position is identical to what was last
+     *  pushed to the stage. */
     private void drainMoveOnEdt() {
         // Reset the queued flag FIRST so any moveFrameTo call that
         // arrives during this run will re-enqueue and pick up its newer
@@ -3158,100 +3107,27 @@ public abstract class Pet implements Runnable {
         }
         final int x = this.intendedX;
         final int y = this.intendedY;
-        final Rectangle mon = activeMonitor;
-        final int sz = petSize;
-        if (mon == null) {
-            // Unclipped fast path: pet isn't bound to a monitor yet.
-            if (x == lastAppliedX && y == lastAppliedY
-                    && lastAppliedW == sz && lastAppliedH == sz
-                    && lastAppliedOffX == 0 && lastAppliedOffY == 0
-                    && !lastAppliedHidden) {
-                return;
-            }
-            lastAppliedX = x; lastAppliedY = y;
-            lastAppliedW = sz; lastAppliedH = sz;
-            lastAppliedOffX = 0; lastAppliedOffY = 0;
-            lastAppliedHidden = false;
-            frame.setLocation(x, y);
+        if (x == lastAppliedX && y == lastAppliedY) {
             return;
         }
-        MonitorClipper.Clip clip = MonitorClipper.clip(x, y, sz, mon);
-        final boolean hidden = clip.hidden();
-        if (hidden) {
-            if (lastAppliedHidden) {
-                return;
-            }
-            lastAppliedHidden = true;
-            if (frame.isVisible()) {
-                frame.setVisible(false);
-            }
-            return;
-        }
-        final Rectangle b = clip.bounds();
-        final int offX = clip.offsetX();
-        final int offY = clip.offsetY();
-        if (!lastAppliedHidden
-                && b.x == lastAppliedX && b.y == lastAppliedY
-                && b.width == lastAppliedW && b.height == lastAppliedH
-                && offX == lastAppliedOffX && offY == lastAppliedOffY) {
-            return;
-        }
-        lastAppliedX = b.x; lastAppliedY = b.y;
-        lastAppliedW = b.width; lastAppliedH = b.height;
-        lastAppliedOffX = offX; lastAppliedOffY = offY;
-        lastAppliedHidden = false;
-        // Use the cheaper Window.setLocation when the frame is fully
-        // inside the monitor (no clip-induced resize): native
-        // SetWindowPos with SWP_NOSIZE is significantly cheaper than the
-        // full setBounds path on Windows.
-        if (b.width == sz && b.height == sz && offX == 0 && offY == 0
-                && frame.getWidth() == sz && frame.getHeight() == sz) {
-            frame.setLocation(b.x, b.y);
-        } else {
-            frame.setBounds(b.x, b.y, b.width, b.height);
-            applyLabelOffset(offX, offY);
-        }
-        if (!frame.isVisible()) {
-            frame.setVisible(true);
-        }
+        lastAppliedX = x;
+        lastAppliedY = y;
+        frame.setLocation(x, y);
     }
 
-    /** Last bounds / label offset / visibility actually pushed to the
-     *  native window. Used by {@link #moveFrameTo} to coalesce no-op
-     *  ticks; see the javadoc there for the reasoning. */
+    /** Last position actually pushed to the stage. Used by
+     *  {@link #moveFrameTo} to coalesce no-op ticks; see the javadoc there
+     *  for the reasoning. */
     private int lastAppliedX = Integer.MIN_VALUE;
     private int lastAppliedY = Integer.MIN_VALUE;
-    private int lastAppliedW = -1;
-    private int lastAppliedH = -1;
-    private int lastAppliedOffX = 0;
-    private int lastAppliedOffY = 0;
-    private boolean lastAppliedHidden = false;
 
     /**
      * The pet's intended logical position (top-left of a notional
-     * petSizeÃ—petSize box), regardless of any current edge clipping in
-     * {@link #moveFrameTo}. Prefer this over {@code frame.getLocation()}
-     * for any position-arithmetic - using the clipped JFrame location
-     * would compute wrong distances when the pet is partially or fully
-     * off-monitor.
+     * petSize×petSize box). Prefer this over {@code frame.getLocation()}
+     * for any position-arithmetic.
      */
     public final Point logicalLocation() {
         return new Point(intendedX, intendedY);
-    }
-
-    /**
-     * Shift the child labels inside the frame so that {@code (offX, offY)}
-     * sprite pixels are hidden on the left/top. Sizes stay the same; the
-     * (possibly smaller) frame clips the rendering naturally.
-     */
-    private void applyLabelOffset(int offX, int offY) {
-        petLabel.setLocation(-offX, -offY);
-        heartLabel.setLocation(heartX - offX, heartY - offY);
-        emoteLabel.setLocation(emoteX - offX, emoteY - offY);
-        propLabel.setLocation(
-                (petSize - propW) / 2 + (int) (petSize * 0.30) - offX,
-                petSize - propH - offY);
-        speechLabel.setLocation(bubbleX - offX, bubbleY - offY);
     }
 
     /** When non-null, the pet was spawned just off the edge of a monitor
@@ -3265,12 +3141,12 @@ public abstract class Pet implements Runnable {
      *  diagonally down to the floor rather than scuttling in along an
      *  edge. Cleared with {@link #pendingEntryTargetX}. */
     private volatile Integer pendingEntryTargetY;
-    /** Monitor the pet is currently bound to. When non-null, {@link
-     *  #moveFrameTo} clips the frame to these bounds (the JFrame never
-     *  straddles two monitors, so it can't leak into a misaligned
-     *  neighbour), and the pet sprite is offset within the (possibly
-     *  smaller) frame so it visibly slides off the edge as the pet walks
-     *  out. Set on spawn and on DISAPPEAR_REAPPEAR re-entry. */
+    /** Monitor the pet is currently bound to for behavior purposes (floor
+     *  Y, walk-target bounds, edge-wiggle limits, entry-walk anchors).
+     *  Set on spawn and on DISAPPEAR_REAPPEAR re-entry. Render-time
+     *  clipping to this rect is no longer needed: pets paint onto the
+     *  per-monitor {@link Stage} canvas and Swing clips them naturally
+     *  to the canvas bounds. */
     private volatile Rectangle activeMonitor;
 
     /** The pet's intended logical position (top-left of an unclipped
@@ -3282,10 +3158,6 @@ public abstract class Pet implements Runnable {
      *  pet is partially off-screen. */
     private volatile int intendedX;
     private volatile int intendedY;
-    /** Cached HWND of {@link #frame}, looked up via a unique window title
-     *  once after {@code setVisible(true)}. Used by {@link #reassertTopmost}
-     *  to keep the pet in the topmost band even if another app demotes it. */
-    private volatile long hwnd = 0L;
 
     // ---------------- suspend / resume (hide animation) ----------------
 
