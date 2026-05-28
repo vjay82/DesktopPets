@@ -109,7 +109,7 @@ public final class PetSupervisor {
                 wantedKeyToSpecies.put(species + "#" + i, species);
             }
         }
-        Log.info("supervisor", "reconcileCounts â†’ " + wantedKeyToSpecies.keySet());
+
 
         List<PetHandle> toStop = new ArrayList<>();
         List<PetHandle> toStart = new ArrayList<>();
@@ -155,6 +155,10 @@ public final class PetSupervisor {
         for (PetHandle h : toStart) {
             h.thread.start();
         }
+        if (!toStop.isEmpty() || !toStart.isEmpty()) {
+            Log.info("supervisor", "reconcileCounts → " + wantedKeyToSpecies.keySet()
+                    + " (+" + toStart.size() + " -" + toStop.size() + ")");
+        }
     }
 
     public synchronized void setPaused(boolean p) {
@@ -196,6 +200,9 @@ public final class PetSupervisor {
 
     public synchronized void setActivityLevel(double level) {
         double clamped = Math.max(0.0, Math.min(2.0, level));
+        if (clamped == this.activityLevel) {
+            return;
+        }
         this.activityLevel = clamped;
         for (PetHandle h : live.values()) {
             h.pet.activityLevel = clamped;
