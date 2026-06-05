@@ -68,7 +68,17 @@ public record World(int screenW, int screenH, Rectangle foreground, Rectangle ta
             }
             Rectangle fg = Win32.foregroundWindowRect();
             Rectangle tb = Win32.taskbarRect();
-            List<Rectangle> topmost = Win32.topmostWindowRects(screenW, screenH);
+            // Pets only ever stand on the shell bar (taskbar) top, or the
+            // bottom of the screen when there is no bottom bar — never on
+            // application windows. So the perch list is intentionally empty:
+            // the floor resolver (Pet#floorYAt / Pet#walkAlongFloor) then
+            // falls back to the work-area bottom, and every window-perch
+            // activity (high-perch-leap, window-hop, perch-nap, perch-sing,
+            // inspect-window, knock-something-off) gates itself off. This
+            // also makes pets immune to app windows / Alt-Tab reshuffling the
+            // z-order: a window sliding on top can no longer be mistaken for
+            // a surface that drops the pet down behind the taskbar.
+            List<Rectangle> topmost = List.of();
             if (!Objects.equals(fg, lastObservedForeground)) {
                 lastObservedForeground = fg;
                 foregroundSeenSinceMs = now;

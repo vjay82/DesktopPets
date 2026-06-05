@@ -1242,7 +1242,6 @@ public abstract class Pet implements Runnable {
             // setLocation / setVisible / setSize / add); coordinates are
             // virtual-desktop screen pixels exactly like before.
             frame = new PetWindow();
-            frame.setSize(petSize, petSize);
 
             layoutLabels();
             frame.add(speechLabel);
@@ -1258,7 +1257,6 @@ public abstract class Pet implements Runnable {
             Rectangle primary = primaryMonitorBounds();
             Point clamped;
             Point firstSetLocation;
-            Rectangle initialBounds; // exact bounds for the first frame.setBounds
             {
                 // Pick a random visible monitor and a random side. The pet's
                 // intended logical position starts FULLY OUTSIDE the chosen
@@ -1286,17 +1284,6 @@ public abstract class Pet implements Runnable {
                 pendingEntryTargetX = plan.target.x;
                 pendingEntryTargetY = plan.fromAbove ? plan.target.y : null;
                 activeMonitor = plan.monitor;
-                // 1-px slice flush with the entry edge so the panel is
-                // attached on the correct monitor's stage right away; the
-                // first walkAlongFloor()/walkTo() step will grow it.
-                if (plan.fromAbove) {
-                    initialBounds = new Rectangle(plan.target.x, plan.monitor.y, petSize, 1);
-                } else {
-                    int peerEdgeX = plan.fromRight
-                            ? plan.monitor.x + plan.monitor.width - 1
-                            : plan.monitor.x;
-                    initialBounds = new Rectangle(peerEdgeX, plan.entryStart.y, 1, petSize);
-                }
                 Log.info("pet:" + name,
                         "entry from " + (plan.fromAbove
                                 ? "above"
@@ -1310,10 +1297,17 @@ public abstract class Pet implements Runnable {
             // otherwise return (0,0) until the first moveFrameTo).
             this.intendedX = firstSetLocation.x;
             this.intendedY = firstSetLocation.y;
-            // Attach to the stage at the initial 1-px slice. The wrapper
-            // handles screen-coords -> stage-canvas-local translation and
-            // picks the right per-monitor stage window.
-            frame.show(initialBounds.x, initialBounds.y, initialBounds.width, initialBounds.height);
+            // Attach the FULL petSize panel to the entry monitor's stage at
+            // the off-screen entry position. The pet is bound to its monitor
+            // explicitly (not inferred from the off-screen top-left point),
+            // then Swing clips the panel to the stage canvas bounds, so the
+            // pet slides in from the edge as the entry walk advances it
+            // inward. The panel keeps its petSize footprint for its whole
+            // life — movement is pure setLocation (see moveFrameTo) and the
+            // canvas does the edge clipping, so the pet is never squashed to
+            // a sliver.
+            frame.showOnMonitor(activeMonitor, firstSetLocation.x, firstSetLocation.y,
+                    petSize, petSize);
 
             // Force an immediate first frame so the pet is visible without
             // waiting for the behavior loop to tick once.

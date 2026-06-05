@@ -2,6 +2,7 @@ package com.desktoppets;
 
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Rectangle;
 
 import javax.swing.JPanel;
 
@@ -107,6 +108,24 @@ public final class PetWindow {
         this.height = h;
         Stage.attach(panel, sx, sy);
         Stage.setBounds(panel, sx, sy, w, h);
+        setVisible(true);
+    }
+
+    /**
+     * Attach the panel to the stage covering the GIVEN monitor (chosen
+     * explicitly, not from the panel's top-left point) at the supplied
+     * screen-coord bounds, and make it visible. Unlike {@link #show(int,
+     * int, int, int)} this lands the pet on the correct monitor even when
+     * its top-left starts fully OFF that monitor — the spawn / re-entry
+     * walks position the pet just outside the entry edge and rely on the
+     * stage canvas to clip the full-size panel until it walks inward.
+     */
+    public void showOnMonitor(Rectangle monitor, int sx, int sy, int w, int h) {
+        this.x = sx;
+        this.y = sy;
+        this.width = w;
+        this.height = h;
+        Stage.attachToMonitor(panel, monitor, sx, sy, w, h);
         setVisible(true);
     }
 }

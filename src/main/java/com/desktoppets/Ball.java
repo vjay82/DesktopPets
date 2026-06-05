@@ -1,7 +1,12 @@
 package com.desktoppets;
 
 import java.awt.Color;
+import java.awt.GraphicsConfiguration;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
+import java.awt.Insets;
 import java.awt.Rectangle;
+import java.awt.Toolkit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.JFrame;
@@ -34,10 +39,12 @@ import javax.swing.SwingUtilities;
  * {@link #noteInterest()} (which {@link #kick(double)} does automatically)
  * to keep the ball alive.
  *
- * <p>The ball window's z-order is set once at creation via
- * {@code setAlwaysOnTop(true)}; we deliberately don't re-assert topmost
- * each tick the way pets do, so the ball doesn't fight overlapping pet
- * windows for the topmost slot (see Win32.reassertTopmost rationale).
+ * <p>The ball window's z-order is set once at creation: it is made
+ * always-on-top and then dropped just below the taskbar (see
+ * {@link Win32#placeBelowTaskbar}) so the shell bar — and any window in
+ * front of it — can cover it. We deliberately don't re-assert it each tick
+ * the way pets do — AWT window moves preserve z-order, so the one-shot
+ * placement holds for the ball's lifetime.
  */
 public final class Ball {
 
@@ -130,6 +137,13 @@ public final class Ball {
 
     private final int sizePx;
     private final Rectangle monitor;
+    /** Screen-Y of the shell-bar top on the ball's monitor (or the raw
+     *  monitor bottom when that monitor has no bottom taskbar). The ball
+     *  rests its bottom here, matching the pets — which now only stand on
+     *  the shell bar / screen bottom — instead of sinking behind the bar at
+     *  the raw monitor bottom. Computed once at spawn (the taskbar doesn't
+     *  move during a ball's short life). */
+    private final int workAreaBottom;
     private final int screenW;
     private final int screenH;
 
@@ -183,6 +197,7 @@ public final class Ball {
     private Ball(Rectangle monitor, int xLogical, int yFloor, int sizePx,
                  int screenW, int screenH) {
         this.monitor = monitor;
+        this.workAreaBottom = computeWorkAreaBottom(monitor);
         this.xLogical = xLogical;
         this.yLogical = yFloor - sizePx;
         this.yLogicalD = this.yLogical;
@@ -391,6 +406,30 @@ public final class Ball {
         return remaining > 0 ? remaining : 0L;
     }
 
+    /** Work-area bottom (shell-bar top, or raw monitor bottom if that
+     *  monitor has no bottom taskbar) for the given monitor, via AWT screen
+     *  insets. Matches the same value the pets use for their floor so the
+     *  ball and the pets share one resting line. */
+    private static int computeWorkAreaBottom(Rectangle monitor) {
+        int monBottom = monitor.y + monitor.height;
+        try {
+            for (GraphicsDevice d : GraphicsEnvironment.getLocalGraphicsEnvironment()
+                    .getScreenDevices()) {
+                GraphicsConfiguration cfg = d.getDefaultConfiguration();
+                if (cfg.getBounds().equals(monitor)) {
+                    Insets ins = Toolkit.getDefaultToolkit().getScreenInsets(cfg);
+                    if (ins != null && ins.bottom > 0) {
+                        return monBottom - ins.bottom;
+                    }
+                    return monBottom;
+                }
+            }
+        } catch (Throwable t) {
+            // ignore — fall back to raw monitor bottom
+        }
+        return monBottom;
+    }
+
     private void initOnEdt() {
         frame = new JFrame();
         frame.setUndecorated(true);
@@ -404,7 +443,15 @@ public final class Ball {
         frame.add(label);
         frame.setSize(sizePx, sizePx);
         frame.setLocation((int) xLogical, yLogical);
+        String title = "DesktopPets-Ball-" + Long.toHexString(System.nanoTime());
+        frame.setTitle(title);
         frame.setVisible(true);
+        // Sit just below the taskbar like the pet stage, so the shell bar
+        // (and any window in front of it) can draw over the ball instead of
+        // the ball covering it. The ball never re-asserts its own z-order
+        // afterwards (see class doc) and AWT window moves preserve z-order,
+        // so this one-shot placement holds.
+        Win32.placeBelowTaskbar(Win32.findWindowByTitle(title), monitor);
         Sprites.apply(label, "prop/ball");
     }
 
@@ -480,7 +527,10 @@ public final class Ball {
             World world = World.snapshot(screenW, screenH);
             int currentFeetY = yLogical + sizePx;
             int snappedTop = world.floorY(sizePx, (int) xLogical, sizePx, currentFeetY);
-            int monBottomTop = monitor.y + monitor.height - sizePx;
+            // Cap to the shell-bar top (work-area bottom) so the ball rests
+            // on the taskbar like the pets, instead of sinking behind it at
+            // the raw monitor bottom.
+            int monBottomTop = workAreaBottom - sizePx;
             int targetY = Math.min(snappedTop, monBottomTop);
             if (yLogicalD < targetY) {
                 vy += GRAVITY_PER_TICK;
