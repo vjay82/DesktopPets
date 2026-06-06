@@ -375,6 +375,7 @@ public final class Doodle {
             case "tree": return "Sprites/Props/tree.svg";
             case "ufo":  return "Sprites/Props/ufo.svg";
             case "ufo-beam": return "Sprites/Props/ufo-beam.svg";
+            case "airplane": return "Sprites/Props/airplane.svg";
             default:     return null;
         }
     }

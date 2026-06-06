@@ -69,6 +69,20 @@ public final class SpecialEvents {
          * scheduler, so a one-off failure never kills the timer.
          */
         void attempt(PetSupervisor supervisor, List<Pet> activeResidents);
+
+        /**
+         * Force this event to fire now, bypassing its random probability
+         * roll — used by {@link SpecialEvents#triggerNow(String)} for the
+         * {@code --event} test flag so the otherwise-rare spectacle reliably
+         * appears on demand. The shared gate (one visitor at a time; a
+         * non-empty {@code activeResidents}) is already enforced by the
+         * caller. The default delegates to {@link #attempt}, which is still
+         * probability-gated; events override this to guarantee a spawn when
+         * explicitly requested.
+         */
+        default void triggerNow(PetSupervisor supervisor, List<Pet> activeResidents) {
+            attempt(supervisor, activeResidents);
+        }
     }
 
     /**
@@ -167,6 +181,67 @@ public final class SpecialEvents {
                 stop();
             }
         });
+    }
+
+    /**
+     * Force the registered event with the given {@code id} to fire once now —
+     * for manual testing via the {@code --event} command-line flag. Bypasses
+     * the event's poll cadence and its random probability roll, but still
+     * respects the shared gate: a short-lived daemon waits up to ~10 s for a
+     * resident pet's window to come alive, skips if a visitor is already on
+     * screen, then triggers the event once. The per-event enabled toggle is
+     * deliberately ignored — an explicit test request overrides it.
+     *
+     * @return {@code true} if an event with that id is registered (so the
+     *         trigger was scheduled), {@code false} if the id is unknown.
+     */
+    public boolean triggerNow(String id) {
+        Registration target = null;
+        for (Registration r : registrations) {
+            if (r.id().equals(id)) {
+                target = r;
+                break;
+            }
+        }
+        if (target == null) {
+            Log.warn("special-events",
+                    "--event: no special event with id '" + id + "'; known ids: " + ids());
+            return false;
+        }
+        final Registration r = target;
+        Thread t = new Thread(() -> {
+            long deadline = System.currentTimeMillis() + 10_000L;
+            List<Pet> live = activeResidents(supervisor);
+            while (live.isEmpty() && System.currentTimeMillis() < deadline
+                    && !Thread.currentThread().isInterrupted()) {
+                try {
+                    Thread.sleep(200L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                live = activeResidents(supervisor);
+            }
+            if (live.isEmpty()) {
+                Log.warn("special-events",
+                        "--event " + r.id() + ": no active resident pet appeared; nothing to witness it");
+                return;
+            }
+            if (supervisor.hasActiveVisitor()) {
+                Log.warn("special-events",
+                        "--event " + r.id() + ": a visitor is already on screen; skipping");
+                return;
+            }
+            try {
+                Log.info("special-events", "--event: triggering " + r.id() + " now");
+                r.event.triggerNow(supervisor, live);
+            } catch (Throwable ex) {
+                Log.warn("special-events", "--event " + r.id() + " trigger failed: " + ex);
+            }
+        }, "special-event-trigger");
+        t.setDaemon(true);
+        t.start();
+        return true;
     }
 
     /**

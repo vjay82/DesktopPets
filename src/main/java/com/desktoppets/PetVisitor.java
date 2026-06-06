@@ -81,6 +81,13 @@ public final class PetVisitor {
                 }
                 trySpawn(supervisor, activeResidents.get(0));
             }
+
+            @Override
+            public void triggerNow(PetSupervisor supervisor, List<Pet> activeResidents) {
+                // --event test trigger: skip the solo-pet + probability gates,
+                // give the first active resident some company now.
+                trySpawn(supervisor, activeResidents.get(0));
+            }
         };
     }
 

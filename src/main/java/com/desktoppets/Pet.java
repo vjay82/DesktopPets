@@ -1,5 +1,6 @@
 package com.desktoppets;
 
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
@@ -18,6 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.ImageIcon;
+import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
 
@@ -482,10 +484,12 @@ public abstract class Pet implements Runnable {
             if (other == this || other.frame == null || !other.isVisitor()) {
                 continue;
             }
-            // The UFO-event alien runs its own self-contained cinematic and
-            // must not be chased: it ignores scare/knock-down, so a hunting
-            // resident would just stand next to it pointlessly. Leave it be.
-            if (other.ufoEvent) {
+            // The UFO-event alien and the airplane-event passenger both run
+            // their own self-contained cinematics and must not be chased: they
+            // ignore scare/knock-down (and the plane is airborne), so a hunting
+            // resident would just stand next to / under it pointlessly. Leave
+            // them be.
+            if (other.ufoEvent || other.airplaneEvent) {
                 continue;
             }
             Rectangle otherMon = other.currentMonitorBounds();
@@ -770,6 +774,17 @@ public abstract class Pet implements Runnable {
      */
     public volatile boolean ufoEvent = false;
 
+    /**
+     * Set by {@link AirplaneVisitor} before the thread starts to run the
+     * special "airplane fly-by" cinematic instead of the normal
+     * {@link #runVisitorLoop}: a little propeller plane carrying this pet in
+     * its open cockpit cruises across the screen from one edge to the other
+     * and leaves. The pet must also be a visitor ({@link #markAsVisitor()}).
+     * Mutually exclusive with {@link #ufoEvent}. See
+     * {@link #runAirplaneEventLoop()}.
+     */
+    public volatile boolean airplaneEvent = false;
+
     /** Set by {@link #scare(int)} from a hunting pet's thread; read by the
      *  visitor loop to break out of the idle hold and fly off early. */
     public volatile boolean scared = false;
@@ -1045,6 +1060,188 @@ public abstract class Pet implements Runnable {
     private static double ufoSmoothstep(double t) {
         double c = Math.max(0.0, Math.min(1.0, t));
         return c * c * (3.0 - 2.0 * c);
+    }
+
+    /**
+     * Special "airplane fly-by" cinematic (see {@link #airplaneEvent}). A
+     * little propeller plane — with this Ducky passenger baked right into its
+     * cockpit art ({@code Sprites/Props/airplane.svg}) — cruises across the
+     * monitor from one edge to the other and leaves. The whole sequence runs on
+     * this pet's own behaviour thread, a single linear script with no
+     * cross-thread choreography.
+     *
+     * <p>Unlike the resident pets (and the UFO saucer), the plane does NOT ride
+     * on the shared {@link Stage} canvas: that canvas sits at the shell's
+     * z-order and punches transparent holes wherever an ordinary window is
+     * drawn in front of it, which would make a plane cruising across the upper
+     * screen vanish behind your windows. Instead the plane flies in its own
+     * dedicated always-on-top {@link AirplaneWindow}, so it passes IN FRONT of
+     * ordinary windows like the spectacle it is. The duck is part of the plane
+     * sprite, so this pet's own window stays hidden the whole time — the
+     * visitor exists only to drive the cinematic and gate it through the normal
+     * visitor lifecycle. Both windows are disposed in the finally block, even
+     * on interrupt (app shutdown).
+     *
+     * <p>The plane prop is drawn nose-right; for leftward flight the rasterised
+     * icon is mirrored horizontally ({@link AirplaneWindow#create}).
+     */
+    private void runAirplaneEventLoop() {
+        Log.info("pet:" + name, "airplane event begin");
+        World world = World.snapshot(
+                (int) screen.getWidth(), (int) screen.getHeight());
+        reassertTopmost();
+        // The duck is part of the plane art and is never shown as its own pet,
+        // so drop any entry walk initOnEdt queued and keep this window hidden.
+        pendingEntryTargetX = null;
+        pendingEntryTargetY = null;
+        setPetWindowVisible(false);
+
+        // A small, distant fly-by: a quarter of the former size.
+        final double PLANE_SCALE = 0.6;
+
+        Rectangle mon = plannedSpawnMonitor != null
+                ? plannedSpawnMonitor : currentMonitorBounds();
+        // plannedSpawnFromRight true => plane enters from the right, flies left.
+        boolean flyLeft = plannedSpawnFromRight != null && plannedSpawnFromRight;
+        int dir = flyLeft ? -1 : 1;
+
+        int planeSize = Math.max(24, (int) Math.round(petSize * PLANE_SCALE));
+
+        // Cruise altitude: a random band across the upper part of the monitor,
+        // clamped so the whole plane stays above the floor.
+        int floorTopY = floorYAt(world, mon.x + mon.width / 2);
+        int topLimit = mon.y + (int) Math.round(mon.height * 0.10);
+        int bandSpan = Math.max(1, (int) Math.round(mon.height * 0.28));
+        int planeY = topLimit + ThreadLocalRandom.current().nextInt(bandSpan);
+        planeY = Math.min(planeY, Math.max(mon.y, floorTopY - planeSize));
+
+        int enterX = flyLeft ? (mon.x + mon.width) : (mon.x - planeSize);
+        int exitX = flyLeft ? (mon.x - planeSize) : (mon.x + mon.width);
+
+        // Build + show the dedicated always-on-top plane window off-screen at
+        // the entry edge.
+        AirplaneWindow plane = AirplaneWindow.create(planeSize, dir, enterX, planeY);
+
+        try {
+            int stepPx = Math.max(2, Dpi.scale(7));
+            int distance = Math.abs(exitX - enterX);
+            int steps = Math.max(80, distance / stepPx);
+            double bobAmp = Math.max(2.0, planeSize * 0.04);
+            for (int i = 0; i <= steps && !interrupted(); i++) {
+                double t = i / (double) steps;
+                int px = (int) Math.round(enterX + (exitX - enterX) * t);
+                int py = planeY + (int) Math.round(Math.sin(t * Math.PI * 5.0) * bobAmp);
+                plane.setLocation(px, py);
+                sleepInterruptible(16L);
+            }
+        } finally {
+            plane.dispose();
+            disposeWindow();
+            Log.info("pet:" + name, "airplane event end");
+        }
+    }
+
+    /**
+     * A dedicated borderless, always-on-top, click-through {@link JFrame} that
+     * carries the airplane sprite (duck passenger included) across the screen
+     * during {@link #runAirplaneEventLoop()}. A real top-level window — rather
+     * than a panel on the shared {@link Stage} — so the plane cruises in the
+     * normal topmost band, IN FRONT of ordinary windows, instead of being cut
+     * out behind them by the stage's occlusion holes.
+     */
+    private static final class AirplaneWindow {
+        private final JFrame frame;
+
+        private AirplaneWindow(JFrame frame) {
+            this.frame = frame;
+        }
+
+        /** Build + show the plane window off-screen at {@code (x, y)} with the
+         *  airplane icon (mirrored for leftward flight, {@code dir < 0}). All
+         *  AWT/Win32 setup happens synchronously on the EDT so the native HWND
+         *  exists before it is made click-through. */
+        static AirplaneWindow create(int size, int dir, int x, int y) {
+            final JFrame[] out = new JFrame[1];
+            Runnable build = () -> {
+                JFrame f = new JFrame();
+                f.setUndecorated(true);
+                f.setBackground(new Color(0, 0, 0, 0));
+                f.setAlwaysOnTop(true);
+                f.setType(JFrame.Type.UTILITY);      // no taskbar entry
+                f.setFocusableWindowState(false);    // never steal focus
+                f.setAutoRequestFocus(false);
+                f.setLayout(null);
+                JLabel label = new JLabel();
+                label.setBounds(0, 0, size, size);
+                ImageIcon icon = Doodle.icon("prop/airplane", size);
+                if (dir < 0 && icon != null) {
+                    icon = mirroredHoriz(icon);
+                }
+                label.setIcon(icon);
+                f.add(label);
+                f.setSize(size, size);
+                f.setLocation(x, y);
+                String title = "DesktopPets-Airplane-" + Long.toHexString(System.nanoTime());
+                f.setTitle(title);
+                f.setVisible(true);
+                long hwnd = Win32.findWindowByTitle(title);
+                // Exclude from the pet floor/perch finder and make it
+                // click-through so it never traps clicks meant for the apps it
+                // flies over.
+                Win32.registerOwnWindow(hwnd);
+                Win32.makeClickThrough(hwnd);
+                out[0] = f;
+            };
+            try {
+                if (SwingUtilities.isEventDispatchThread()) {
+                    build.run();
+                } else {
+                    SwingUtilities.invokeAndWait(build);
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                Log.warn("airplane", "window create failed: " + e);
+            }
+            return new AirplaneWindow(out[0]);
+        }
+
+        /** Move the plane to {@code (x, y)} in virtual-desktop screen pixels. */
+        void setLocation(int x, int y) {
+            JFrame f = frame;
+            if (f != null) {
+                SwingUtilities.invokeLater(() -> f.setLocation(x, y));
+            }
+        }
+
+        /** Hide + dispose the window. Safe if creation failed. */
+        void dispose() {
+            JFrame f = frame;
+            if (f != null) {
+                SwingUtilities.invokeLater(() -> {
+                    f.setVisible(false);
+                    f.dispose();
+                });
+            }
+        }
+    }
+
+    /** Horizontally-mirrored copy of an icon — used to flip the nose-right
+     *  plane prop for leftward flight. */
+    private static ImageIcon mirroredHoriz(ImageIcon src) {
+        int w = src.getIconWidth();
+        int h = src.getIconHeight();
+        if (w <= 0 || h <= 0) {
+            return src;
+        }
+        java.awt.image.BufferedImage out = new java.awt.image.BufferedImage(
+                w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = out.createGraphics();
+        // Destination (0,0)-(w,h) sampled from source (w,0)-(0,h): a horizontal
+        // (left<->right) flip.
+        g.drawImage(src.getImage(), 0, 0, w, h, w, 0, 0, h, null);
+        g.dispose();
+        return new ImageIcon(out);
     }
 
     /**
@@ -1410,6 +1607,8 @@ public abstract class Pet implements Runnable {
             if (isVisitor()) {
                 if (ufoEvent) {
                     runUfoEventLoop();
+                } else if (airplaneEvent) {
+                    runAirplaneEventLoop();
                 } else {
                     runVisitorLoop();
                 }

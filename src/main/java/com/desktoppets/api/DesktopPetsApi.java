@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.ImageIcon;
 
+import com.desktoppets.AirplaneVisitor;
 import com.desktoppets.BirdVisitor;
 import com.desktoppets.Config;
 import com.desktoppets.Doodle;
@@ -274,12 +275,13 @@ public final class DesktopPetsApi {
                 // the first pet's activation (during the applyLocked reconcile
                 // below) and stops after the last pet is removed. The bird's
                 // enabled state is then driven by the user's
-                // visitorBirdsEnabled toggle in applyLocked(); UFO +
-                // cross-species visitor are always on.
+                // visitorBirdsEnabled toggle in applyLocked(); UFO,
+                // cross-species visitor, and airplane fly-by are always on.
                 try {
                     specialEvents = new SpecialEvents(supervisor);
                     specialEvents.register(UfoVisitor.event());
                     specialEvents.register(PetVisitor.event());
+                    specialEvents.register(AirplaneVisitor.event());
                     birdRegistration = specialEvents.register(BirdVisitor.event());
                     specialEvents.startWhenResidentsPresent();
                 } catch (Throwable t) {

@@ -84,43 +84,13 @@ public final class UfoVisitor {
                 }
                 trySpawn(supervisor, activeResidents);
             }
-        };
-    }
 
-    /**
-     * Trigger one UFO visit on demand — used by the {@code --ufo} command-line
-     * flag so the otherwise-rare spectacle can be demoed without waiting.
-     * Starts a short-lived daemon thread that waits up to a few seconds for a
-     * resident pet's window to come alive (the saucer needs a resident to land
-     * beside), then spawns the alien once, bypassing the random probability
-     * and one-visitor gates of the normal {@link #event()} cadence. Logs and
-     * no-ops if no active resident appears in time.
-     */
-    public static void triggerOnce(PetSupervisor supervisor) {
-        Thread t = new Thread(() -> {
-            long deadline = System.currentTimeMillis() + 10_000L;
-            List<Pet> live = SpecialEvents.activeResidents(supervisor);
-            while (live.isEmpty() && System.currentTimeMillis() < deadline) {
-                try {
-                    Thread.sleep(200L);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-                live = SpecialEvents.activeResidents(supervisor);
+            @Override
+            public void triggerNow(PetSupervisor supervisor, List<Pet> activeResidents) {
+                // --event test trigger: skip the probability roll, spawn now.
+                trySpawn(supervisor, activeResidents);
             }
-            if (live.isEmpty()) {
-                Log.warn("ufo-visitor", "--ufo: no active resident pet appeared; nothing to visit");
-                return;
-            }
-            try {
-                trySpawn(supervisor, live);
-            } catch (Throwable ex) {
-                Log.warn("ufo-visitor", "--ufo trigger failed: " + ex);
-            }
-        }, "ufo-visitor-trigger");
-        t.setDaemon(true);
-        t.start();
+        };
     }
 
     private static void trySpawn(PetSupervisor supervisor, List<Pet> live) {

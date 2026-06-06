@@ -137,4 +137,26 @@ final class SpecialEventsTest {
         assertEquals(0, probe.attempts.get(),
                 "a special event fired with no resident pets");
     }
+
+    @Test
+    void triggerNowReportsUnknownVsKnownIdAndNeverFiresWithoutResident()
+            throws InterruptedException {
+        PetSupervisor supervisor = new PetSupervisor(); // empty roster
+        Probe probe = new Probe(1);
+
+        SpecialEvents events = new SpecialEvents(supervisor);
+        events.register(probe);
+
+        assertFalse(events.triggerNow("no-such-event"),
+                "triggerNow must report false for an unregistered id");
+        assertTrue(events.triggerNow("test-probe"),
+                "triggerNow must report true for a registered id");
+
+        // The forced trigger runs on a background daemon that first waits for an
+        // active resident; with an empty roster it never fires the event, so the
+        // probe's attempt() (the default triggerNow target) must not run.
+        Thread.sleep(300L);
+        assertEquals(0, probe.attempts.get(),
+                "triggerNow fired an event with no active resident present");
+    }
 }

@@ -76,6 +76,12 @@ public final class BirdVisitor {
                 }
                 trySpawn(supervisor, activeResidents);
             }
+
+            @Override
+            public void triggerNow(PetSupervisor supervisor, List<Pet> activeResidents) {
+                // --event test trigger: skip the probability roll, spawn now.
+                trySpawn(supervisor, activeResidents);
+            }
         };
     }
 

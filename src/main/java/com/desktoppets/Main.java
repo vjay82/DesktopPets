@@ -1,5 +1,7 @@
 package com.desktoppets;
 
+import java.util.Locale;
+
 import javax.swing.SwingUtilities;
 
 /**
@@ -13,7 +15,7 @@ public final class Main {
     }
 
     public static void main(String[] args) {
-        boolean triggerUfo = hasFlag(args, "--ufo", "-ufo", "ufo");
+        String triggerEvent = resolveTriggerEvent(args);
         Log.info("main", "Desktop Pets starting (procedural graphics)");
         // Begin sampling the cursor in the background so HUNT_CURSOR
         // (and any other motion-aware activity) has an accurate recent
@@ -29,8 +31,8 @@ public final class Main {
         SwingUtilities.invokeLater(() -> new TrayApp(supervisor).install());
         supervisor.reconcile(Config.readPets());
         // Central special-events scheduler: one daemon timer drives every rare
-        // cosmetic event (wandering bird, cross-species solo-pet visitor, and
-        // the UFO spectacle). Each event self-gates on there being at least
+        // cosmetic event (wandering bird, cross-species solo-pet visitor, the
+        // UFO spectacle, and the airplane fly-by). Each event self-gates on
         // one active (visible) resident pet, so nothing appears on an empty
         // desktop. The timer thread itself is started on the first pet's
         // activation and stopped after the last pet leaves (see
@@ -40,15 +42,19 @@ public final class Main {
         specialEvents.register(BirdVisitor.event());
         specialEvents.register(PetVisitor.event());
         specialEvents.register(UfoVisitor.event());
+        specialEvents.register(AirplaneVisitor.event());
         // Residents were just reconciled above, so this starts the timer
         // immediately when config.txt lists any pets; with an empty config it
         // stays idle until the user adds a pet from the tray.
         specialEvents.startWhenResidentsPresent();
-        // `--ufo` on the command line fires one visit immediately (once a
-        // resident is alive) so the otherwise-rare event can be demoed.
-        if (triggerUfo) {
-            Log.info("main", "--ufo flag set: triggering a UFO visit now");
-            UfoVisitor.triggerOnce(supervisor);
+        // A special event can be triggered immediately from the command line
+        // for testing — generically by its SpecialEvents id
+        // (`--event airplane-visitor`) or via a short alias (`--airplane`,
+        // `--ufo`, `--bird`, `--pet`). The trigger waits briefly for an active
+        // resident to witness it, then fires once, bypassing the random
+        // probability gate. See SpecialEvents.triggerNow.
+        if (triggerEvent != null) {
+            specialEvents.triggerNow(triggerEvent);
         }
     }
 
@@ -62,5 +68,57 @@ public final class Main {
             }
         }
         return false;
+    }
+
+    /**
+     * Resolve a special event to trigger immediately from the command line, or
+     * {@code null} if none was requested. Supports the generic
+     * {@code --event <id>} / {@code --event=<id>} form (where {@code id} is the
+     * event's {@link SpecialEvents} id, e.g. {@code airplane-visitor}) plus the
+     * short aliases {@code --ufo}, {@code --airplane}, {@code --bird} and
+     * {@code --pet}.
+     */
+    private static String resolveTriggerEvent(String[] args) {
+        for (int i = 0; i < args.length; i++) {
+            String lower = args[i].toLowerCase(Locale.ROOT);
+            if (lower.equals("--event") || lower.equals("-event")) {
+                return i + 1 < args.length ? aliasToEventId(args[i + 1]) : null;
+            }
+            if (lower.startsWith("--event=") || lower.startsWith("-event=")) {
+                return aliasToEventId(args[i].substring(args[i].indexOf('=') + 1));
+            }
+        }
+        // Bare short aliases as a convenience.
+        if (hasFlag(args, "--ufo", "-ufo", "ufo")) {
+            return "ufo-visitor";
+        }
+        if (hasFlag(args, "--airplane", "-airplane", "airplane", "--plane")) {
+            return "airplane-visitor";
+        }
+        if (hasFlag(args, "--bird", "-bird", "bird")) {
+            return "bird-visitor";
+        }
+        if (hasFlag(args, "--pet", "-pet", "pet", "--visitor")) {
+            return "pet-visitor";
+        }
+        return null;
+    }
+
+    /** Map a short alias (or pass through a full {@link SpecialEvents} id). */
+    private static String aliasToEventId(String raw) {
+        switch (raw.toLowerCase(Locale.ROOT)) {
+            case "ufo":
+                return "ufo-visitor";
+            case "airplane":
+            case "plane":
+                return "airplane-visitor";
+            case "bird":
+                return "bird-visitor";
+            case "pet":
+            case "visitor":
+                return "pet-visitor";
+            default:
+                return raw; // assume it's already a full id
+        }
     }
 }
