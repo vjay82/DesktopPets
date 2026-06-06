@@ -958,6 +958,12 @@ public final class Win32 {
     /** Immutable empty result shared by {@link #collectOccluders}. */
     private static final int[][] EMPTY_RECTS = new int[0][];
 
+    /** Each occluder rectangle is shrunk by this many LOGICAL pixels on every
+     *  edge (top, bottom, left, right) before it is cleared from the pet canvas.
+     *  So the pets are not clipped exactly at the window border but overlap it
+     *  slightly — the cut-out is 5px smaller than the window on each side. */
+    private static final int OCCLUDER_INSET_PX = 5;
+
     /**
      * Collect the rectangles of every free-floating window that overlaps the
      * given stage — i.e. the windows the pets should appear to hide behind.
@@ -985,7 +991,9 @@ public final class Win32 {
      * surface is uploaded via {@code UpdateLayeredWindow} and a window region is
      * not honoured reliably, whereas clearing the canvas alpha always is. The
      * physical rectangles are converted to logical pixels here (rounding
-     * outward) so the caller never deals with DPI.
+     * outward) so the caller never deals with DPI, then shrunk by
+     * {@link #OCCLUDER_INSET_PX} on every edge so the pets overlap each window's
+     * border slightly instead of being clipped exactly at it.
      */
     public static int[][] collectOccluders(long stageHwnd) {
         if (!WINDOWS || stageHwnd == 0L) {
@@ -1004,16 +1012,22 @@ public final class Win32 {
             if (holes.isEmpty()) {
                 return EMPTY_RECTS;
             }
-            int[][] out = new int[holes.size()][];
+            List<int[]> out = new ArrayList<>(holes.size());
             for (int i = 0; i < holes.size(); i++) {
                 int[] hr = holes.get(i); // {left,top,right,bottom} physical, stage-relative
-                int x = (int) Math.floor(hr[0] / DPI_SCALE_X);
-                int y = (int) Math.floor(hr[1] / DPI_SCALE_Y);
-                int x2 = (int) Math.ceil(hr[2] / DPI_SCALE_X);
-                int y2 = (int) Math.ceil(hr[3] / DPI_SCALE_Y);
-                out[i] = new int[] { x, y, x2 - x, y2 - y };
+                int x = (int) Math.floor(hr[0] / DPI_SCALE_X) + OCCLUDER_INSET_PX;
+                int y = (int) Math.floor(hr[1] / DPI_SCALE_Y) + OCCLUDER_INSET_PX;
+                int x2 = (int) Math.ceil(hr[2] / DPI_SCALE_X) - OCCLUDER_INSET_PX;
+                int y2 = (int) Math.ceil(hr[3] / DPI_SCALE_Y) - OCCLUDER_INSET_PX;
+                if (x2 <= x || y2 <= y) {
+                    continue; // window narrower/shorter than the inset — nothing left to cut
+                }
+                out.add(new int[] { x, y, x2 - x, y2 - y });
             }
-            return out;
+            if (out.isEmpty()) {
+                return EMPTY_RECTS;
+            }
+            return out.toArray(new int[0][]);
         } catch (Throwable t) {
             if (OCCLUSION_FAILURE_LOGGED.compareAndSet(false, true)) {
                 Log.warn("win32", "collectOccluders failed: " + t);
