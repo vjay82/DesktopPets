@@ -259,7 +259,7 @@ final class Sprites {
             }
         }
         if (maxX < 0) {
-            // Fully transparent â€” fall back to full frame so callers
+            // Fully transparent — fall back to full frame so callers
             // don't crash on a zero-width bbox.
             return new Rectangle(w, h);
         }

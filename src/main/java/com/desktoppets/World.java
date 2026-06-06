@@ -51,7 +51,7 @@ public record World(int screenW, int screenH, Rectangle foreground, Rectangle ta
                 && cached.world.screenH == screenH) {
             return cached.world;
         }
-        // Single-flight refresh: with several pet threads ticking 5Ã—/sec
+        // Single-flight refresh: with several pet threads ticking 5×/sec
         // they often expire the TTL within microseconds of each other.
         // Without this gate every miss-caller would invoke the full
         // Win32 enumeration in parallel. Re-check the cache inside the
@@ -136,7 +136,7 @@ public record World(int screenW, int screenH, Rectangle foreground, Rectangle ta
     // HUNT_CURSOR's priority stayed at 0 and the pet never hunted.
 
     private static final int  CURSOR_HIST_SIZE     = 64;
-    private static final long CURSOR_SAMPLE_MIN_MS = 80L;
+    private static final long CURSOR_SAMPLE_MIN_MS = 250L;
     private static final Object CURSOR_LOCK = new Object();
     private static final long[] cursorTs = new long[CURSOR_HIST_SIZE];
     private static final int[]  cursorXs = new int[CURSOR_HIST_SIZE];

@@ -21,7 +21,7 @@ public final class Ducky extends Pet {
     // Ducky sprite sits in the bottom-right of its 64-viewBox. The heart
     // placement is artistic (slightly to the right of the head), so it stays
     // hand-tuned; feetYRatio is auto-detected from the idle SVG via
-    // SpriteMetrics (â‰ˆ48/64 â†’ 0.75) and no longer needs an override here.
+    // SpriteMetrics (≈48/64 → 0.75) and no longer needs an override here.
     @Override protected double heartCenterXRatio() { return 0.55; }
     @Override protected double heartTopYRatio()    { return 0.45; }
 

@@ -183,6 +183,46 @@ public final class Win32 {
                     FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS))
             : null;
 
+    /** {@code SetWinEventHook} — installs an out-of-context accessibility event
+     *  hook so the occlusion is recomputed only when a window actually moves /
+     *  resizes / appears, instead of polling at a fixed rate. */
+    private static final MethodHandle SET_WIN_EVENT_HOOK = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("SetWinEventHook").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS,
+                            ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS,
+                            ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT,
+                            ValueLayout.JAVA_INT))
+            : null;
+
+    /** {@code UnhookWinEvent} — removes a hook installed above (on shutdown). */
+    private static final MethodHandle UNHOOK_WIN_EVENT = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("UnhookWinEvent").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS))
+            : null;
+
+    /** {@code GetMessageW} — the hook thread's message pump; out-of-context
+     *  WinEvent callbacks are delivered while this call is blocking. */
+    private static final MethodHandle GET_MESSAGE = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("GetMessageW").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS,
+                            ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT))
+            : null;
+
+    private static final MethodHandle TRANSLATE_MESSAGE = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("TranslateMessage").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS))
+            : null;
+
+    private static final MethodHandle DISPATCH_MESSAGE = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("DispatchMessageW").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS))
+            : null;
+
     /** gdi32 region primitives (legacy SetWindowRgn path, retained). The live
      *  occlusion now clears rectangles at paint time — see
      *  {@link #collectOccluders}. */
@@ -266,6 +306,23 @@ public final class Win32 {
     /** VK_LBUTTON virtual key code for {@code GetAsyncKeyState}. */
     public static final int VK_LBUTTON = 0x01;
 
+    // ---- SetWinEventHook: event-driven occlusion watch (replaces polling) ----
+    /** {@code WINEVENT_OUTOFCONTEXT} — deliver callbacks on our own hook thread
+     *  (no DLL injection); requires that thread to pump a message loop. */
+    private static final int WINEVENT_OUTOFCONTEXT   = 0x0000;
+    /** {@code WINEVENT_SKIPOWNPROCESS} — never fire for our own pet windows. */
+    private static final int WINEVENT_SKIPOWNPROCESS = 0x0002;
+    /** First system event we watch: the foreground window changed. */
+    private static final int EVENT_SYSTEM_FOREGROUND  = 0x0003;
+    /** Last system event we watch: a window finished un-minimising. The range
+     *  in between also covers move/size start+end and minimise start. */
+    private static final int EVENT_SYSTEM_MINIMIZEEND = 0x0017;
+    /** First object event we watch: a window became visible. */
+    private static final int EVENT_OBJECT_SHOW           = 0x8002;
+    /** Last object event we watch: a window moved / resized. The range also
+     *  covers hide / reorder / state-change (maximise & restore). */
+    private static final int EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
+
     private static final MethodHandle ENUM_PROC_HANDLE;
     static {
         if (WINDOWS) {
@@ -305,6 +362,35 @@ public final class Win32 {
                     FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG),
                     ARENA)
             : null;
+
+    private static final MethodHandle WIN_EVENT_PROC_HANDLE;
+    static {
+        if (WINDOWS) {
+            try {
+                WIN_EVENT_PROC_HANDLE = MethodHandles.lookup().findStatic(Win32.class, "winEventProc",
+                        MethodType.methodType(void.class, MemorySegment.class, int.class,
+                                MemorySegment.class, int.class, int.class, int.class, int.class));
+            } catch (NoSuchMethodException | IllegalAccessException e) {
+                throw new ExceptionInInitializerError(e);
+            }
+        } else {
+            WIN_EVENT_PROC_HANDLE = null;
+        }
+    }
+
+    private static final MemorySegment WIN_EVENT_PROC_STUB = WINDOWS
+            ? LINKER.upcallStub(WIN_EVENT_PROC_HANDLE,
+                    FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT,
+                            ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT,
+                            ValueLayout.JAVA_INT, ValueLayout.JAVA_INT),
+                    ARENA)
+            : null;
+
+    /** Notified on the hook thread whenever a non-own top-level window changes
+     *  in a way that can affect the occlusion (see {@link #startOcclusionWatch}). */
+    private static volatile Runnable WINDOW_CHANGE_LISTENER;
+    private static final AtomicBoolean WIN_EVENT_STARTED = new AtomicBoolean(false);
+    private static final AtomicBoolean WIN_EVENT_FAILURE_LOGGED = new AtomicBoolean(false);
 
     /** Per-call collector for the {@link #ENUM_PROC_STUB} callback. Behavior
      *  engines tick ~5×/sec, but the World cache (150 ms) means concurrent
@@ -837,6 +923,16 @@ public final class Win32 {
             ? ThreadLocal.withInitial(() -> ARENA.allocate(ValueLayout.JAVA_INT))
             : null;
 
+    /** Reusable per-thread 16-byte {@code RECT} out-param for
+     *  {@link #physicalRectRaw}. The occlusion pass calls that helper for every
+     *  top-level window ~30×/sec; a per-call {@code Arena.ofConfined()} there
+     *  churned thousands of arena create/close + segment allocations per second.
+     *  The pass is single-threaded, and the rect is copied into an {@code int[]}
+     *  before the helper returns, so one reusable segment per thread is safe. */
+    private static final ThreadLocal<MemorySegment> RECT_OUT = WINDOWS
+            ? ThreadLocal.withInitial(() -> ARENA.allocate(16))
+            : null;
+
     private static final AtomicBoolean HOLE_PROC_FAILURE_LOGGED = new AtomicBoolean(false);
     private static final AtomicBoolean OCCLUSION_FAILURE_LOGGED = new AtomicBoolean(false);
 
@@ -850,18 +946,28 @@ public final class Win32 {
             if ((int) IS_WINDOW_VISIBLE.invoke(hwnd) == 0) {
                 return 1;
             }
+            // Cheap geometry first: the vast majority of top-level windows do
+            // not overlap THIS monitor's stage (they are on another monitor,
+            // minimised at -32000, or otherwise off-screen). Reject those up
+            // front — before the costlier per-window queries below (owning PID,
+            // class name, cloaked state) — so those only ever run for the handful
+            // of windows actually covering the stage.
+            int[] pr = physicalRectRaw(hwnd);
+            if (pr == null) {
+                return 1;
+            }
+            int l = Math.max(pr[0], c.sLeft);
+            int t = Math.max(pr[1], c.sTop);
+            int r = Math.min(pr[2], c.sRight);
+            int b = Math.min(pr[3], c.sBottom);
+            if (r <= l || b <= t) {
+                return 1; // doesn't overlap this monitor's stage
+            }
             if (isOwnProcessWindow(hwnd) || OWN_HWNDS.contains(hwnd.address())) {
                 return 1; // never carve out our own stage / ball / tree / dialog
             }
             if (isShellBarClass(hwnd)) {
                 return 1; // the taskbar: pets stand ON it, never carve it out
-            }
-            if (isCloaked(hwnd)) {
-                return 1; // minimised UWP / other virtual desktop — not really visible
-            }
-            int[] pr = physicalRectRaw(hwnd);
-            if (pr == null) {
-                return 1;
             }
             // Skip windows that fill (essentially) the whole monitor: a
             // maximised window, a full-screen / borderless window, or the
@@ -877,12 +983,8 @@ public final class Win32 {
             if (isMaximized(hwnd) || coversWholeStage(pr, c)) {
                 return 1;
             }
-            int l = Math.max(pr[0], c.sLeft);
-            int t = Math.max(pr[1], c.sTop);
-            int r = Math.min(pr[2], c.sRight);
-            int b = Math.min(pr[3], c.sBottom);
-            if (r <= l || b <= t) {
-                return 1; // doesn't overlap this monitor's stage
+            if (isCloaked(hwnd)) {
+                return 1; // minimised UWP / other virtual desktop — not really visible
             }
             c.holes.add(new int[] { l - c.sLeft, t - c.sTop, r - c.sLeft, b - c.sTop });
         } catch (Throwable th) {
@@ -936,10 +1038,11 @@ public final class Win32 {
         }
     }
 
-    /** Raw {@code GetWindowRect} (physical px) as {@code {left,top,right,bottom}}, or null. */
+    /** Raw {@code GetWindowRect} (physical px) as {@code {left,top,right,bottom}}, or null.
+     *  Uses the reusable per-thread {@link #RECT_OUT} segment (no per-call arena). */
     private static int[] physicalRectRaw(MemorySegment hwnd) {
-        try (Arena a = Arena.ofConfined()) {
-            MemorySegment rect = a.allocate(16);
+        try {
+            MemorySegment rect = RECT_OUT.get();
             int ok = (int) GET_WINDOW_RECT.invoke(hwnd, rect);
             if (ok == 0) {
                 return null;
@@ -1033,6 +1136,106 @@ public final class Win32 {
                 Log.warn("win32", "collectOccluders failed: " + t);
             }
             return EMPTY_RECTS;
+        }
+    }
+
+    /**
+     * Start watching for window changes that can affect the pet occlusion
+     * (move, resize, maximise / restore, show / hide, foreground switch) and run
+     * {@code onChange} whenever one happens. This replaces fixed-rate polling: a
+     * dedicated daemon thread installs two out-of-context {@code SetWinEventHook}
+     * accessibility hooks and pumps a message loop, so the callback fires only
+     * when a window actually changes — the occlusion recompute becomes
+     * event-driven and costs nothing while the desktop is idle.
+     *
+     * <p>{@code onChange} runs on the hook thread and MUST be cheap: it should
+     * only schedule a coalesced recompute, never call {@link #collectOccluders}
+     * inline (that would stall the message loop). The hooks are installed with
+     * {@code WINEVENT_SKIPOWNPROCESS}, so our own pet windows never trigger it.
+     * Started at most once; subsequent calls just refresh the listener. No-op
+     * off Windows.
+     */
+    public static void startOcclusionWatch(Runnable onChange) {
+        if (!WINDOWS) {
+            return;
+        }
+        WINDOW_CHANGE_LISTENER = onChange;
+        if (!WIN_EVENT_STARTED.compareAndSet(false, true)) {
+            return; // hook thread already running
+        }
+        Thread t = new Thread(Win32::runWinEventLoop, "pets-winevent-hook");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Hook-thread body: install the WinEvent hooks, then pump the message loop
+     *  that delivers their out-of-context callbacks. Runs for the life of the
+     *  process; the hooks are removed if the loop ever exits. */
+    private static void runWinEventLoop() {
+        MemorySegment hookA = MemorySegment.NULL;
+        MemorySegment hookB = MemorySegment.NULL;
+        try {
+            int flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+            hookA = (MemorySegment) SET_WIN_EVENT_HOOK.invoke(
+                    EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_MINIMIZEEND,
+                    MemorySegment.NULL, WIN_EVENT_PROC_STUB, 0, 0, flags);
+            hookB = (MemorySegment) SET_WIN_EVENT_HOOK.invoke(
+                    EVENT_OBJECT_SHOW, EVENT_OBJECT_LOCATIONCHANGE,
+                    MemorySegment.NULL, WIN_EVENT_PROC_STUB, 0, 0, flags);
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment msg = a.allocate(64); // MSG (48 bytes on x64; padded)
+                int r;
+                while ((r = (int) GET_MESSAGE.invoke(msg, MemorySegment.NULL, 0, 0)) != 0) {
+                    if (r == -1) {
+                        break; // GetMessage error
+                    }
+                    TRANSLATE_MESSAGE.invoke(msg);
+                    DISPATCH_MESSAGE.invoke(msg);
+                }
+            }
+        } catch (Throwable t) {
+            if (WIN_EVENT_FAILURE_LOGGED.compareAndSet(false, true)) {
+                Log.warn("win32", "WinEvent occlusion watch failed: " + t);
+            }
+        } finally {
+            try {
+                if (hookA != null && hookA.address() != 0) {
+                    UNHOOK_WIN_EVENT.invoke(hookA);
+                }
+                if (hookB != null && hookB.address() != 0) {
+                    UNHOOK_WIN_EVENT.invoke(hookB);
+                }
+            } catch (Throwable ignored) {
+                // shutting down — ignore
+            }
+        }
+    }
+
+    /**
+     * {@code WINEVENTPROC} callback (out-of-context), invoked on the hook thread
+     * for every accessibility event in the hooked ranges. We only care about
+     * top-level window objects ({@code OBJID_WINDOW} / {@code CHILDID_SELF}) —
+     * caret, cursor and other child-object events (which fire constantly) are
+     * filtered out — and merely notify the listener; the listener coalesces
+     * these into a throttled recompute. {@code WINEVENT_SKIPOWNPROCESS} already
+     * drops events from our own pet windows.
+     */
+    @SuppressWarnings("unused") // called via upcall stub
+    private static void winEventProc(MemorySegment hWinEventHook, int event, MemorySegment hwnd,
+            int idObject, int idChild, int idEventThread, int dwmsEventTime) {
+        try {
+            if (idObject != 0 || idChild != 0) {
+                return; // not the window itself (OBJID_WINDOW=0, CHILDID_SELF=0)
+            }
+            if (hwnd == null || hwnd.address() == 0) {
+                return;
+            }
+            Runnable l = WINDOW_CHANGE_LISTENER;
+            if (l != null) {
+                l.run();
+            }
+        } catch (Throwable ignored) {
+            // a misbehaving listener must never break the message loop
         }
     }
 

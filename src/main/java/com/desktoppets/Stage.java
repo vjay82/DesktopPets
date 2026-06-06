@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JComponent;
 import javax.swing.JFrame;
@@ -193,6 +194,13 @@ public final class Stage {
     private static ScheduledExecutorService occlusionTimer;
     private static final Object OCCLUSION_LOCK = new Object();
 
+    /** Coalesces a burst of WinEvent notifications (a window being dragged
+     *  fires many per second) into at most one occlusion recompute every
+     *  {@value #OCCLUSION_COALESCE_MS} ms. Nothing runs while the desktop is
+     *  idle. */
+    private static final AtomicBoolean OCCLUSION_PENDING = new AtomicBoolean(false);
+    private static final long OCCLUSION_COALESCE_MS = 33L;
+
     /** Start the shared occlusion timer once, on first stage creation. */
     private static void ensureOcclusionTimer() {
         synchronized (OCCLUSION_LOCK) {
@@ -204,11 +212,40 @@ public final class Stage {
                 th.setDaemon(true);
                 return th;
             });
-            // ~30 Hz: responsive enough to follow a dragged window without
-            // burning CPU; collectOccluders is cheap and we only repaint a
-            // canvas when its occluder set actually changed.
-            t.scheduleWithFixedDelay(Stage::updateOcclusion, 200, 33, TimeUnit.MILLISECONDS);
+            // Event-driven: Win32 installs WinEvent hooks and calls
+            // onWindowChanged() only when a window actually moves / resizes /
+            // appears, which schedules a single coalesced recompute. The fixed
+            // task here is just a slow (1 Hz) safety net catching any
+            // occlusion-relevant change no WinEvent reported (e.g. a DWM cloak
+            // toggle); while the desktop is idle almost no work happens (vs the
+            // old unconditional ~30 Hz poll).
+            t.scheduleWithFixedDelay(Stage::updateOcclusion, 200, 1000, TimeUnit.MILLISECONDS);
             occlusionTimer = t;
+            Win32.startOcclusionWatch(Stage::onWindowChanged);
+        }
+    }
+
+    /** WinEvent listener (runs on the hook thread): schedule a single coalesced
+     *  {@link #updateOcclusion} on the occlusion executor, throttled to at most
+     *  one every {@link #OCCLUSION_COALESCE_MS} ms so a continuous drag costs at
+     *  most ~30 recomputes/sec and a still desktop costs none. */
+    private static void onWindowChanged() {
+        ScheduledExecutorService t;
+        synchronized (OCCLUSION_LOCK) {
+            t = occlusionTimer;
+        }
+        if (t == null) {
+            return;
+        }
+        if (OCCLUSION_PENDING.compareAndSet(false, true)) {
+            try {
+                t.schedule(() -> {
+                    OCCLUSION_PENDING.set(false);
+                    updateOcclusion();
+                }, OCCLUSION_COALESCE_MS, TimeUnit.MILLISECONDS);
+            } catch (RuntimeException ex) {
+                OCCLUSION_PENDING.set(false); // executor shutting down
+            }
         }
     }
 

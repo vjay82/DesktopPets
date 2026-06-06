@@ -8,7 +8,7 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Drives a {@link Pet}'s behaviour. Each tick:
  * <ol>
- *   <li>decay needs by elapsed seconds Ã— personality decay;</li>
+ *   <li>decay needs by elapsed seconds × personality decay;</li>
  *   <li>snapshot the (cached) {@link World};</li>
  *   <li>pick the highest-priority {@link Activity} (after personality bias,
  *       per-activity cooldowns, foreground-window stability, the user's
@@ -19,14 +19,14 @@ import java.util.concurrent.ThreadLocalRandom;
  * <h2>Calmness rules</h2>
  * <ul>
  *   <li><b>IDLE is the baseline.</b> Its base priority (5) outweighs each
- *       ambient activity (â‰ˆ1), but the engine picks via <i>weighted random
- *       sampling</i> rather than argmax â€” so non-IDLE activities still fire
+ *       ambient activity (≈1), but the engine picks via <i>weighted random
+ *       sampling</i> rather than argmax — so non-IDLE activities still fire
  *       a fraction of picks, giving visible variety.</li>
- *   <li><b>Cooldowns.</b> WANDER 30â€“90 s, ZOOMIES 1â€“3 min,
- *       DISAPPEAR_REAPPEAR 1.5â€“4 min. Need-driven activities have no
- *       cooldown â€” they're gated by the underlying need.</li>
+ *   <li><b>Cooldowns.</b> WANDER 30–90 s, ZOOMIES 1–3 min,
+ *       DISAPPEAR_REAPPEAR 1.5–4 min. Need-driven activities have no
+ *       cooldown — they're gated by the underlying need.</li>
  *   <li><b>Post-activity rest.</b> After any non-IDLE step, the pet is forced
- *       to idle for 4â€“14 s before the engine considers another activity.</li>
+ *       to idle for 4–14 s before the engine considers another activity.</li>
  *   <li><b>Urgent-need bypass.</b> If any need drops below 15 the engine
  *       switches to argmax over need-driven activities, ignoring cooldowns
  *       and rest so the pet still self-cares even at the "lethargic" slider
@@ -135,7 +135,7 @@ public final class BehaviorEngine {
                 pet.hover();
             } else if (chosen != null) {
                 if (!chosen.name().equals(lastChosenName)) {
-                    Log.info("engine:" + pet.name, "â†’ " + chosen.name());
+                    Log.info("engine:" + pet.name, "→ " + chosen.name());
                     lastChosenName = chosen.name();
                 }
                 pet.currentActivityName = chosen.name();
@@ -157,14 +157,14 @@ public final class BehaviorEngine {
         double activity = clampActivity(pet.activityLevel);
         boolean urgent = pet.needs.lowestBelow(URGENT_NEED_LEVEL) != null;
 
-        // Forced post-activity rest period â€” unless something is urgent.
+        // Forced post-activity rest period — unless something is urgent.
         if (!urgent && nowMs < restUntilMs) {
             return Activities.IDLE;
         }
 
         double idleBoost = Math.max(0.05, 2.0 - activity);
 
-        // Urgent: argmax â€” the lowest need decides deterministically.
+        // Urgent: argmax — the lowest need decides deterministically.
         if (urgent) {
             Activity best = null;
             double bestScore = 0;
@@ -200,9 +200,9 @@ public final class BehaviorEngine {
                 }
             }
             double raw = a.priority(pet, world) * pet.personality.multiplier(a.name());
-            // IDLE scales with the activity-level gate (lethargic â†’ more idle,
-            // hyperactive â†’ less). Non-IDLE activities are floored at 0.25Ã—
-            // raw so even "calm" pets still occasionally play / wander â€” the
+            // IDLE scales with the activity-level gate (lethargic → more idle,
+            // hyperactive → less). Non-IDLE activities are floored at 0.25×
+            // raw so even "calm" pets still occasionally play / wander — the
             // slider modulates frequency rather than killing them off.
             double score = (a == Activities.IDLE)
                     ? raw * idleBoost

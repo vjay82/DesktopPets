@@ -237,7 +237,7 @@ public final class Personality {
 
     /**
      * Bird: skittish, visitor-only. Bird never runs {@link BehaviorEngine}
-     * â€” {@link Pet#run()} routes visitors through {@code runVisitorLoop()}
+     * — {@link Pet#run()} routes visitors through {@code runVisitorLoop()}
      * instead, so the activity-bias map is effectively unused at runtime.
      * Kept minimal: only the decay rates (consulted by {@link NeedSet#decay})
      * and the {@code climb-foreground} sanity entry asserted by {@code SmokeTest}

@@ -22,10 +22,10 @@ import javax.swing.SwingUtilities;
 
 /**
  * Base class for all desktop pets. Owns its borderless window and provides the
- * animation primitives ({@link #idle()}, {@link #walkTo(int, int)}, â€¦) used
+ * animation primitives ({@link #idle()}, {@link #walkTo(int, int)}, …) used
  * by both the {@link BehaviorEngine} and direct mouse interactions.
  *
- * <p>All visuals are now drawn procedurally by {@link Doodle} â€” there are no
+ * <p>All visuals are now drawn procedurally by {@link Doodle} — there are no
  * sprite files. Pet size is settable at runtime via {@link #setSize(int)}.
  * Activity level (0..2, 1 = normal) gates how often the FSM picks active
  * behaviours over plain idle.
@@ -250,7 +250,7 @@ public abstract class Pet implements Runnable {
      * the frame. Used by {@link Activities#WANDER} / {@link Activities#IDLE} to
      * land the pet's feet on the floor instead of its frame bottom (otherwise
      * pets with padding appear to float). Defaults to the bottom of the idle
-     * sprite's non-empty pixels â€” self-correcting if sprites change.
+     * sprite's non-empty pixels — self-correcting if sprites change.
      */
     protected double feetYRatio() { return metrics().feetYRatio(); }
 
@@ -308,7 +308,7 @@ public abstract class Pet implements Runnable {
         return cached;
     }
 
-    /** Lazy caches for the default frame lists â€” every call site previously
+    /** Lazy caches for the default frame lists — every call site previously
      *  allocated a fresh {@code List.of(...)} / {@code unmodifiableList}
      *  wrapper per invocation. The lists are immutable strings derived
      *  from {@link #doodleKind()} which is constant per pet, so a single
@@ -335,8 +335,8 @@ public abstract class Pet implements Runnable {
      * Play a brief 3-frame leg-swing animation for a ball kick, in place
      * of just freezing on {@code walk[0]} for the duration of the kick
      * (which made the kick visually indistinguishable from standing
-     * still â€” "ball kicking sprites seem missing"). Cycles through
-     * mid-walk â†’ follow-through â†’ recovery frames in the chosen
+     * still — "ball kicking sprites seem missing"). Cycles through
+     * mid-walk → follow-through → recovery frames in the chosen
      * direction so a leg is visibly extended at the moment of contact.
      *
      * @param kickRight true to use the right-facing walk cycle.
@@ -445,7 +445,7 @@ public abstract class Pet implements Runnable {
                 continue;
             }
             // Visitors (the wandering Bird) are handled by their own
-            // dedicated activity (HUNT_BIRD) â€” exclude them from generic
+            // dedicated activity (HUNT_BIRD) — exclude them from generic
             // pet-pet sociality (greet/chase/sniff/etc.) so the bird
             // doesn't get sniffed/greeted while it's just visiting.
             if (other.isVisitor()) {
@@ -499,19 +499,19 @@ public abstract class Pet implements Runnable {
      * What this pet should do when its next step would put it inside another
      * pet's bounding box during {@link #walkAlongFloor}.
      * <ul>
-     *   <li>{@link #PASS} â€” walk straight through (old behaviour);</li>
-     *   <li>{@link #STOP} â€” abort the walk, leaving the pet where it stands;</li>
-     *   <li>{@link #JUMP} â€” render the pet ~half a body-height above the
+     *   <li>{@link #PASS} — walk straight through (old behaviour);</li>
+     *   <li>{@link #STOP} — abort the walk, leaving the pet where it stands;</li>
+     *   <li>{@link #JUMP} — render the pet ~half a body-height above the
      *       floor for the duration of the overlap so it visibly hops over.</li>
      * </ul>
-     * Both pets roll independently â€” coordination falls out naturally
+     * Both pets roll independently — coordination falls out naturally
      * (sometimes both stop, sometimes one jumps while the other walks, etc.)
      * which looks like play rather than scripted choreography.
      *
      * <p>Birds are excluded from the encounter scan: their overridden
      * {@link Bird#walkAlongFloor} flies diagonally to perch height, so when
      * a bird is mid-flight its bbox sits well above any ground pet's bbox
-     * and the overlap test naturally returns no collision â€” the bird is
+     * and the overlap test naturally returns no collision — the bird is
      * already "flying over". A bird that happens to be at floor Y still
      * registers as a collidable obstacle for ground pets.
      */
@@ -522,10 +522,10 @@ public abstract class Pet implements Runnable {
     /**
      * A short-lived state another pet has asked us to perform on its behalf.
      * <ul>
-     *   <li>{@link #DUCK} â€” the other pet is jumping over us; we crouch
+     *   <li>{@link #DUCK} — the other pet is jumping over us; we crouch
      *       (sit sprite) for the duration of the hop so the visual reads as
      *       both pets cooperating in a leapfrog.</li>
-     *   <li>{@link #FLEE} â€” the other pet has started hunting us; we sprint
+     *   <li>{@link #FLEE} — the other pet has started hunting us; we sprint
      *       away from {@link #reactionSourceX} on the next engine tick.</li>
      * </ul>
      * The flag is consumed by {@link BehaviorEngine#run} (which prioritises
@@ -538,7 +538,7 @@ public abstract class Pet implements Runnable {
 
     /**
      * Immutable snapshot of a pending pet-pet reaction. The three fields
-     * always move together â€” published atomically via {@link #reactionRef}
+     * always move together — published atomically via {@link #reactionRef}
      * so a consumer cannot observe a new {@link Reaction} kind alongside a
      * stale {@code sourceX}/{@code untilMs} from a previous request.
      */
@@ -563,7 +563,7 @@ public abstract class Pet implements Runnable {
      * Set a pending reaction on this pet, to be consumed on its next engine
      * tick. Safe to call from another pet's thread. For {@link Reaction#DUCK}
      * we also immediately apply the sit sprite so the visual fires even if
-     * the target pet is mid-animation â€” its engine will hold the pose for
+     * the target pet is mid-animation — its engine will hold the pose for
      * the remainder of the window when it next ticks.
      */
     public final void requestReaction(Reaction r, long durationMs, int sourceX) {
@@ -725,7 +725,7 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Knock a visitor pet out of its perch â€” currently triggered by a
+     * Knock a visitor pet out of its perch — currently triggered by a
      * moving {@link Ball} that collides with a perched bird. Sets the
      * {@link #knockedDown} flag so the visitor loop breaks out and routes
      * through {@link #fallOutAndExit} (a vertical gravity-style drop off
@@ -779,7 +779,7 @@ public abstract class Pet implements Runnable {
      *       chirping, while checking {@link #scared} every beat;</li>
      *   <li>fly off the nearest (or hunter-opposite) edge and dispose.</li>
      * </ol>
-     * No needs decay, no activity selection, no reactions â€” visitors are
+     * No needs decay, no activity selection, no reactions — visitors are
      * intentionally simple so they can't get into weird states across the
      * short window they exist.
      */
@@ -831,7 +831,7 @@ public abstract class Pet implements Runnable {
      * Knocked-out-of-perch exit for a visitor pet. The bird (or other
      * visitor) drops straight down with constant gravity acceleration
      * until it's fully past the bottom of its monitor, then the caller
-     * disposes the window. Uses no horizontal motion â€” the impact from
+     * disposes the window. Uses no horizontal motion — the impact from
      * the ball happens at the bird's location and we want the fall to
      * read as "plucked off the perch" rather than a controlled glide.
      *
@@ -866,12 +866,12 @@ public abstract class Pet implements Runnable {
 
     /**
      * Safety net for ground (non-flying) pets that have ended up "in the
-     * air" â€” e.g. a JUMP arc was cut short by a thread interrupt, the
+     * air" — e.g. a JUMP arc was cut short by a thread interrupt, the
      * window they were perched on closed/moved while the pet wasn't
      * ticking, or a teleport (disappear-reappear, monitor reassignment)
      * left them above their gravity-resolved floor. The pet drops
      * straight down with constant gravity acceleration until its feet
-     * land on the next surface beneath at the current column â€” that's
+     * land on the next surface beneath at the current column — that's
      * whatever {@link #floorYAt(World, int)} resolves to (the top of a
      * lower window, or the desktop floor as the always-present
      * fallback). No-op for flyers (Bird) and when the pet is already
@@ -1168,7 +1168,7 @@ public abstract class Pet implements Runnable {
         if (r < 45) return CollisionPlan.PASS;
         if (r < 75) return CollisionPlan.STOP;
         if (r < 90) return CollisionPlan.JUMP;
-        // 10%: bumping into a pet sometimes triggers a chase â€” but only
+        // 10%: bumping into a pet sometimes triggers a chase — but only
         // when the prey is actually ahead of us. If it's behind, fall back
         // to PASS so we don't suddenly U-turn mid-walk.
         return huntEligible ? CollisionPlan.HUNT : CollisionPlan.PASS;
@@ -1348,7 +1348,7 @@ public abstract class Pet implements Runnable {
         // would lift the visible body off the floor and make it "float".
         // Use the actual union of attached GraphicsDevice bounds so monitors
         // to the left of / above the primary (negative x or y) aren't clipped
-        // away â€” Toolkit.getScreenSize() is primary-only on many JVMs.
+        // away — Toolkit.getScreenSize() is primary-only on many JVMs.
         Rectangle u = screenUnionBounds();
         int feetH = Math.max(1, (int) Math.round(petSize * feetYRatio()));
         int x = Math.max(u.x,  Math.min(p.x, u.x + u.width  - petSize));
@@ -1401,7 +1401,7 @@ public abstract class Pet implements Runnable {
                     GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
             // Skip degenerate screens (zero/negative area) AND duplicate
             // mirrors (same bounds as a previously-seen device): spawning
-            // onto a 0Ã—0 phantom monitor leaves the pet permanently
+            // onto a 0×0 phantom monitor leaves the pet permanently
             // off-screen, and spawning onto a mirror would visually
             // duplicate but live on a different GraphicsDevice from the one
             // walkAlongFloor's currentMonitorBounds picks back, breaking
@@ -1448,7 +1448,7 @@ public abstract class Pet implements Runnable {
      * Previously this used an 80% same-monitor bias plus an unconditional
      * random pick across all monitors, which on a typical 2-monitor
      * setup meant only ~10% of disappear/reappear events actually
-     * switched screens â€” making it feel like pets never leave their
+     * switched screens — making it feel like pets never leave their
      * monitor.
      */
     private EntryPlan pickReentryPlan(Rectangle preferred, Rectangle primary) {
@@ -1558,15 +1558,15 @@ public abstract class Pet implements Runnable {
             // enters from the upper-right and flies down-left.
             //
             // Geometry: Bird.walkTo lerps Y linearly across the dx steps,
-            // so the descent ANGLE is atan(dy/dx). To get a gentle ~20Â°
-            // dive (not a near-vertical drop), we want |dx| â‰ˆ dy / tan(20Â°)
-            // â‰ˆ dy * 2.75. With dy = (targetY - (mon.y - petSize)) â€” i.e.
+            // so the descent ANGLE is atan(dy/dx). To get a gentle ~20°
+            // dive (not a near-vertical drop), we want |dx| ≈ dy / tan(20°)
+            // ≈ dy * 2.75. With dy = (targetY - (mon.y - petSize)) — i.e.
             // the full descent from just above the monitor top to the
-            // floor â€” that lateral offset is much larger than petSize but
+            // floor — that lateral offset is much larger than petSize but
             // perfectly fine: the entryStart sits off-screen above-and-
             // beside the monitor and the bird flies in along the diagonal.
             int verticalDrop = targetY - (mon.y - petSize);
-            // tan(20Â°) â‰ˆ 0.364 â†’ multiplier â‰ˆ 2.75. Floor at 2Ã— petSize
+            // tan(20°) ≈ 0.364 → multiplier ≈ 2.75. Floor at 2× petSize
             // so very tall monitors still look like a swoop rather than
             // a line that disappears off-screen.
             int lateral = Math.max(2 * petSize, (int) Math.round(verticalDrop * 2.75));
@@ -1655,7 +1655,7 @@ public abstract class Pet implements Runnable {
         return List.of(doodleKind() + "/sit");
     }
 
-    /** Pet stretches â€” distinct silhouette for a beat then resumes. */
+    /** Pet stretches — distinct silhouette for a beat then resumes. */
     public void stretch() {
         applySprite(doodleKind() + "/stretch");
         sleepInterruptible(STRETCH_HOLD_MS);
@@ -1775,7 +1775,7 @@ public abstract class Pet implements Runnable {
 
     /**
      * Comedic spin-in-place: alternate right-walk and left-walk frame cycles
-     * at high speed so the pet appears to chase its own tail. Universal â€”
+     * at high speed so the pet appears to chase its own tail. Universal —
      * looks like rapid spinning for ground pets and rapid flapping for the
      * bird (its walk frames are flap cycles).
      */
@@ -1800,7 +1800,7 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Four small vertical bobs with a {@code drop} emote â€” looks like the
+     * Four small vertical bobs with a {@code drop} emote — looks like the
      * pet has the hiccups. Uses moveFrameTo on the current logical column
      * (no horizontal travel) so it never strays from where it started.
      */
@@ -1832,7 +1832,7 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Sit and emit three mini-hearts in succession â€” visible "I love you"
+     * Sit and emit three mini-hearts in succession — visible "I love you"
      * moment, with a small AFFECTION top-up as a side effect (matches the
      * {@code needs.add} satisfy-by-N convention used elsewhere).
      */
@@ -1850,7 +1850,7 @@ public abstract class Pet implements Runnable {
     /**
      * Curious head-tilt: cycle the "look" sprite (left then right then left)
      * with a yellow {@code question} emote floating above the pet. Universal
-     * â€” every pet has a {@code look} key in {@link Doodle}, so the sprite
+     * — every pet has a {@code look} key in {@link Doodle}, so the sprite
      * always resolves.
      */
     public void headTilt() {
@@ -1868,8 +1868,8 @@ public abstract class Pet implements Runnable {
 
     /**
      * Sleepy yawn: sit, show {@code zzz} emote, sit longer, second {@code zzz}.
-     * Mildly restores ENERGY (the yawn doesn't actually sleep â€” see
-     * {@link #sleep()} for the full nap â€” but it acknowledges that the pet is
+     * Mildly restores ENERGY (the yawn doesn't actually sleep — see
+     * {@link #sleep()} for the full nap — but it acknowledges that the pet is
      * tired, so we credit a small amount so YAWN doesn't fire back-to-back
      * against an already-very-tired pet).
      */
@@ -1885,7 +1885,7 @@ public abstract class Pet implements Runnable {
 
     /**
      * Quiet night gaze: sit, then three slow {@code moon} emotes 1.2 s apart.
-     * Calmer counterpart to {@link #stargaze()} (which uses sparkles) â€” gives
+     * Calmer counterpart to {@link #stargaze()} (which uses sparkles) — gives
      * the rotation a second peaceful filler that reads as nighttime mood.
      */
     public void moonGaze() {
@@ -1901,7 +1901,7 @@ public abstract class Pet implements Runnable {
     /**
      * Anxious pacing: walk one body-width right, then one body-width left,
      * three times. Stays anchored to the starting column on average so a
-     * pacing pet doesn't drift across the whole monitor. No new sprite â€”
+     * pacing pet doesn't drift across the whole monitor. No new sprite —
      * reuses the regular walk gait.
      */
     public final void paceBackAndForth(World world) {
@@ -1922,7 +1922,7 @@ public abstract class Pet implements Runnable {
     /**
      * Silly solo activity: walk to the nearest left/right monitor edge, sit,
      * and lick the screen three times. Reads as the pet trying to clean the
-     * "glass" from the inside. No interaction with siblings â€” purely visual
+     * "glass" from the inside. No interaction with siblings — purely visual
      * comedy. Edge picked by proximity so the pet doesn't always traverse
      * the whole monitor.
      */
@@ -1946,7 +1946,7 @@ public abstract class Pet implements Runnable {
     // ---------------- additional solo verbs ----------------
 
     /**
-     * Sit and cycle three thought-bubble emotes in succession â€” the pet
+     * Sit and cycle three thought-bubble emotes in succession — the pet
      * appears to be daydreaming. Reuses {@code think-food}, {@code mini-heart}
      * and {@code note}; no new sprite. Small BOREDOM relief: the pet
      * entertained itself.
@@ -2035,7 +2035,7 @@ public abstract class Pet implements Runnable {
     /**
      * Solo cat-leaning gag: walk to the nearest monitor edge, sit, and
      * scratch the screen three times ({@code paw} emote). Sister to
-     * {@link #lickScreenEdge(World)} â€” distinct visual (paw vs tongue)
+     * {@link #lickScreenEdge(World)} — distinct visual (paw vs tongue)
      * so the rotation gets two distinct edge-bound moments.
      */
     public void screenScratchEdge(World world) {
@@ -2112,8 +2112,8 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Roll-over gag: sit â†’ flip to the sleep sprite (legs up / belly out
-     * for dog and cat) â†’ sit. Brief; relies on the existing
+     * Roll-over gag: sit → flip to the sleep sprite (legs up / belly out
+     * for dog and cat) → sit. Brief; relies on the existing
      * {@code sleep}/{@code sit} key resolution per species.
      */
     public void rollOver() {
@@ -2237,7 +2237,7 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Pet has been bored by an inactive desktop â€” walks to the foreground
+     * Pet has been bored by an inactive desktop — walks to the foreground
      * window's column, sits, and head-tilts twice. Distinct from
      * {@link Activities#GREET_FOREGROUND} (which fires when fg <i>just</i>
      * changed); this one fires when fg has been stable a long time.
@@ -2265,7 +2265,7 @@ public abstract class Pet implements Runnable {
      * Pounce on the cursor: short pre-wiggle (one beat) then sprint to the
      * cursor's column with a {@code bang} emote on arrival. Distinct from
      * {@link #stalkPointer} (slow creep) and {@link #huntCursor} (sustained
-     * chase) â€” pounce is one explosive shot.
+     * chase) — pounce is one explosive shot.
      */
     public void pounceCursor(World world) {
         Point c = World.cursorPos();
@@ -2399,7 +2399,7 @@ public abstract class Pet implements Runnable {
         int petW = effectiveWidth();
         Rectangle mon = currentMonitorBounds();
         if (mon == null) {
-            // No monitor binding yet (very early in life) â€” degrade to
+            // No monitor binding yet (very early in life) — degrade to
             // the original in-place behaviour so the pet still shows
             // the prop.
             if (propKey != null) showProp(propKey);
@@ -2431,7 +2431,7 @@ public abstract class Pet implements Runnable {
         // isn't left half-off-screen.
         moveFrameTo(edgeX, start.y);
         if (interrupted() || hovered || clicked.get()) return;
-        // Now attach the prop â€” the pet returns into view holding it.
+        // Now attach the prop — the pet returns into view holding it.
         if (propKey != null) showProp(propKey);
         sleepInterruptible(150);
         if (interrupted() || hovered || clicked.get()) return;
@@ -2443,13 +2443,13 @@ public abstract class Pet implements Runnable {
      * Pet-pet handover: pick up a {@code prop/gift}, carry it to the
      * nearest sibling, turn to face them, and visibly transfer the gift
      * onto the sibling (the box moves from this pet's prop slot to the
-     * sibling's). The sibling then shows {@code mini-heart} above the
-     * gift, the giver shows {@code sparkle}, and both gain AFFECTION.
+     * sibling's). Once received, both the sibling and the giver show the
+     * {@code mini-heart} emote together, and both gain AFFECTION.
      *
      * <p>The "transfer" stage is what makes the interaction readable to
      * the user: clearing our prop and only showing a small heart over the
      * other pet (the original behaviour) was easy to miss when the two
-     * pets were already adjacent or the heart was occluded â€” the user
+     * pets were already adjacent or the heart was occluded — the user
      * just saw a pet lift a gift and "nothing happen". Moving the gift
      * sprite onto the sibling makes the hand-off explicit.
      */
@@ -2518,13 +2518,13 @@ public abstract class Pet implements Runnable {
         if (other.frame != null) {
             other.showProp("prop/gift");
         }
-        // Both pets react together so the user can clearly see who gave
-        // and who received: a heart over the receiver while it "holds"
-        // the gift, and a sparkle over the giver.
+        // Both pets react together once the gift is received: a heart
+        // emote over the receiver (while it "holds" the gift) AND over the
+        // giver, shown simultaneously so the shared moment is unmistakable.
         if (other.frame != null) {
             Sprites.apply(other.emoteLabel, "emote/mini-heart");
         }
-        showEmote("sparkle", 900);
+        showEmote("mini-heart", 900);
         if (other.frame != null) {
             Sprites.apply(other.emoteLabel, null);
             other.clearProp();
@@ -2592,7 +2592,7 @@ public abstract class Pet implements Runnable {
     /**
      * Visitor-bird reaction for species that don't actively hunt birds
      * (dog, ducky). Pet freezes, shows {@code bang} then {@code question}
-     * â€” it noticed the intruder but isn't chasing.
+     * — it noticed the intruder but isn't chasing.
      */
     public void birdWarning() {
         sit();
@@ -2623,7 +2623,7 @@ public abstract class Pet implements Runnable {
     /**
      * Kick the ball out into the world: the pet shows the {@code paw} bat
      * emote and spawns a new standalone {@link Ball} window at its side
-     * with an outward impulse. The Ball is a world object â€” once spawned,
+     * with an outward impulse. The Ball is a world object — once spawned,
      * every nearby pet (see {@link Ball#INTEREST_RADIUS}) sees it via
      * {@link Ball#active()} and will run to chase / re-kick it via
      * {@link #chaseBall}; a multi-pet scrum emerges naturally. The
@@ -2678,7 +2678,7 @@ public abstract class Pet implements Runnable {
         int ballX = kickRight ? myLoc.x + petW : myLoc.x - ballSize;
 
         // Face the ball and bat-emote BEFORE swinging the leg so the
-        // causeâ†’effect reads correctly. The ball is spawned NOW (before
+        // cause→effect reads correctly. The ball is spawned NOW (before
         // the animation) so it is visibly next to the pet during the
         // wind-up; the impulse is applied at the contact frame inside
         // animateKick via the onContact callback. Spawning the ball
@@ -2695,7 +2695,7 @@ public abstract class Pet implements Runnable {
         });
         if (interrupted()) return;
         needs.add(Need.BOREDOM, 25);
-        // Don't enter chase here â€” BehaviorEngine's per-tick ball bypass
+        // Don't enter chase here — BehaviorEngine's per-tick ball bypass
         // will route THIS pet (and every other nearby one) into chaseBall
         // on the next tick, so the soccer scrum is uniform.
     }
@@ -2727,7 +2727,7 @@ public abstract class Pet implements Runnable {
         int ballMid = ball.centerX();
         // Edge-to-edge gap between pet body bbox and ball bbox along X.
         // Use this (not center distance) to decide whether we're adjacent
-        // enough to kick â€” otherwise a large pet next to a small ball
+        // enough to kick — otherwise a large pet next to a small ball
         // could "kick from a distance" because center-to-center is still
         // within the combined-radii sum even when the bboxes don't
         // touch.
@@ -2749,7 +2749,7 @@ public abstract class Pet implements Runnable {
             boolean ballMovingAway =
                     (dx > 0 && ball.vx() > 0) || (dx < 0 && ball.vx() < 0);
             if (ballMovingAway && !ball.isAtRest()) {
-                // Ball is fleeing â€” let it; just face it and pause briefly.
+                // Ball is fleeing — let it; just face it and pause briefly.
                 List<String> faceFrames = (dx >= 0) ? walkRightFrames() : walkLeftFrames();
                 if (!faceFrames.isEmpty()) {
                     applySprite(faceFrames.get(0));
@@ -2781,8 +2781,8 @@ public abstract class Pet implements Runnable {
             // 3-frame leg-swing wind-up before the impulse, so the kick
             // VISIBLY swings a leg instead of just freezing on walk[0]
             // ("ball kicking sprites seem missing"). The ball launches
-            // on the contact frame (mid-swing) â€” not after the full
-            // animation â€” so the ball doesn't drift away from the pet
+            // on the contact frame (mid-swing) — not after the full
+            // animation — so the ball doesn't drift away from the pet
             // during the swing under its own rolling physics ("pets
             // kicked it from far away").
             animateKick(kickRight, 180, () -> {
@@ -2795,11 +2795,11 @@ public abstract class Pet implements Runnable {
             return;
         }
 
-        // Not close enough â€” run toward the ball's current column.
+        // Not close enough — run toward the ball's current column.
         // Aim so the pet's BODY CENTER lands on the ball center, so the
         // sprite visibly stands on top of / overlaps the ball when it
         // arrives instead of stopping next-to or beneath it ("pets stand
-        // beneath the ball when kicking â€” let the sprites overlap").
+        // beneath the ball when kicking — let the sprites overlap").
         // We compensate for the body's offset within its frame; if we
         // aimed the FRAME center at the ball, the body would land
         // {leftPad - rightPad}/2 pixels off-center.
@@ -2809,7 +2809,7 @@ public abstract class Pet implements Runnable {
             frameW = petSize;
         }
         int leftPad = body.x - logicalLocation().x;
-        // Same target regardless of approach direction â€” we want full
+        // Same target regardless of approach direction — we want full
         // overlap, not edge alignment. runAlongFloor handles the facing
         // direction (pet faces the way it walks); the subsequent kick
         // block then re-faces the pet toward the kick direction via
@@ -2825,7 +2825,7 @@ public abstract class Pet implements Runnable {
      * ball's center, not a visitor (visitors have their own behaviour
      * loop), not currently hovered/clicked, and no need is urgent (urgent
      * self-care always wins over play). Birds are excluded because they
-     * fly â€” kicking a ball with a beak from above looks silly and would
+     * fly — kicking a ball with a beak from above looks silly and would
      * need its own animation pass.
      */
     public final boolean canChaseBall(Ball ball) {
@@ -2998,7 +2998,7 @@ public abstract class Pet implements Runnable {
 
     /**
      * Ease-in/ease-out timing for walks: returns a per-step delay that's
-     * ~2Ã— base at the start and end of the traverse and ~1Ã— base in the
+     * ~2× base at the start and end of the traverse and ~1× base in the
      * middle, giving walks visible weight on take-off and landing instead
      * of starting/stopping abruptly.
      *
@@ -3144,7 +3144,7 @@ public abstract class Pet implements Runnable {
     private volatile Rectangle activeMonitor;
 
     /** The pet's intended logical position (top-left of an unclipped
-     *  petSizeÃ—petSize box). This is the position callers think the pet
+     *  petSize×petSize box). This is the position callers think the pet
      *  is at; {@link #frame}'s actual bounds may be narrower because
      *  {@link #moveFrameTo} clips them to {@link #activeMonitor}. Always
      *  read this via {@link #logicalLocation()} instead of
@@ -3335,7 +3335,7 @@ public abstract class Pet implements Runnable {
             // Above-entry: dive diagonally from above-monitor straight
             // to the floor target. walkTo handles flight (overridden
             // for Bird) or a plain horizontal walk with a Y snap for
-            // ground pets â€” but in practice only flying visitors use
+            // ground pets — but in practice only flying visitors use
             // this code path.
             walkTo(targetX, targetY);
         } else {
@@ -3395,7 +3395,7 @@ public abstract class Pet implements Runnable {
 
     /**
      * Y the pet's frame should sit at so its feet land on the floor at column
-     * {@code x}, computed by gravity from the pet's <b>current</b> feet Y â€”
+     * {@code x}, computed by gravity from the pet's <b>current</b> feet Y —
      * the pet only ever falls onto surfaces at-or-below where it stands, never
      * teleports upward onto a window that just opened overhead. See
      * {@link World#floorY(int, int, int, int)}.
@@ -3583,7 +3583,7 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Same as {@link #walkAlongFloor} but in a faster "run" gait â€” used for
+     * Same as {@link #walkAlongFloor} but in a faster "run" gait — used for
      * hunting / fleeing. Pets without dedicated run sprites fall back to walk
      * frames cycled at the run step-delay (so they still feel faster).
      * Subclasses that override {@link #walkAlongFloor} (e.g. {@link Bird},
@@ -3599,7 +3599,7 @@ public abstract class Pet implements Runnable {
      * Moonwalk gait: same horizontal traversal as {@link #walkAlongFloor}
      * but the walk-cycle frames are taken from the OPPOSITE-facing
      * direction. Visually the pet slides toward {@code targetX} while its
-     * sprite keeps facing the way it came from â€” the classic Michael
+     * sprite keeps facing the way it came from — the classic Michael
      * Jackson illusion. Uses walk frames (never run) and the standard walk
      * step delay so the gag reads clearly.
      */
@@ -3611,7 +3611,7 @@ public abstract class Pet implements Runnable {
      * Shared body of {@link #walkAlongFloor} and {@link #runAlongFloor}.
      * Selects walk vs run frame set + step delay + sprite-step distance based
      * on the {@code running} flag. All collision / jump / floor-profile logic
-     * is identical between the two gaits â€” only sprite + pacing differ.
+     * is identical between the two gaits — only sprite + pacing differ.
      *
      * <p>When {@code moonwalk} is true the frame set is taken from the
      * opposite-facing direction so the pet appears to slide backwards
@@ -3642,7 +3642,7 @@ public abstract class Pet implements Runnable {
         // desktop floor) instead of jumping up onto windows that pop up
         // overhead mid-walk.
         int currentFeetY = start.y + feetH;
-        // Latched plan for the current sibling-pet encounter â€” chosen once
+        // Latched plan for the current sibling-pet encounter — chosen once
         // per overlap so the pet doesn't re-roll every step and jitter.
         CollisionPlan plan = null;
         // JUMP-arc state. {@code jumpStep} is the current pixel-step along the
@@ -3656,13 +3656,13 @@ public abstract class Pet implements Runnable {
         // the walk (moveFrameTo clips to it; the pet can't cross monitors
         // mid-walk), so the work-area bottom is constant across all
         // pixel-steps. Sample it ONCE here rather than calling
-        // {@link #monitorBottomAtColumn(int)} per step â€” that method
+        // {@link #monitorBottomAtColumn(int)} per step — that method
         // iterates every GraphicsDevice and calls AWT
         // {@code getScreenInsets}, which on Windows reaches into the
         // shell. For a 600-px walk this is 600 native calls; now it's 1.
         //
         // Use the destination column when it lies on a real monitor (the
-        // common case â€” callers clamp targetX to the monitor); otherwise
+        // common case — callers clamp targetX to the monitor); otherwise
         // fall back to the start column. For off-monitor exit walks
         // (disappear-reappear) the frame is hidden by moveFrameTo before
         // the cap matters, so even a primary-monitor fallback is safe.
@@ -3705,16 +3705,16 @@ public abstract class Pet implements Runnable {
             Pet ahead = collidesWithOtherPet(x, y, petW, feetH);
             if (ahead != null && plan == null) {
                 // HUNT is only allowed when the collided pet is actually in
-                // front of us â€” i.e. its mid-X lies in the direction we're
+                // front of us — i.e. its mid-X lies in the direction we're
                 // walking. Otherwise (e.g. we started overlapped and are
-                // moving AWAY) HUNT would force a 180Â° turn that reads as a
+                // moving AWAY) HUNT would force a 180° turn that reads as a
                 // teleport-and-chase rather than "spotted prey ahead".
                 int myMid = logicalLocation().x + petW / 2;
                 int aheadMid = ahead.logicalLocation().x + ahead.effectiveWidth() / 2;
                 boolean preyInFront = goingRight ? aheadMid >= myMid : aheadMid <= myMid;
                 plan = pickCollisionPlan(preyInFront);
                 if (plan == CollisionPlan.HUNT) {
-                    // We just bumped into a sibling â€” promote this walk into
+                    // We just bumped into a sibling — promote this walk into
                     // an impromptu chase. Tell the prey to flee, show a target
                     // emote, hand them a tiny head-start, then sprint after
                     // them. The original walk is abandoned (return) since
@@ -3732,8 +3732,8 @@ public abstract class Pet implements Runnable {
                     return;
                 }
                 if (plan == CollisionPlan.JUMP) {
-                    // Arc spans the full cross â€” from first contact until the
-                    // pet has travelled past the other pet's far edge â€” so the
+                    // Arc spans the full cross — from first contact until the
+                    // pet has travelled past the other pet's far edge — so the
                     // sine curve completes one full hop.
                     jumpStep = 0;
                     jumpSpan = Math.max(1, petW + ahead.effectiveWidth());
@@ -3753,15 +3753,15 @@ public abstract class Pet implements Runnable {
             }
             int renderY = y;
             if (plan == CollisionPlan.JUMP) {
-                // Fluent parabolic hop via sin(Ï€t). The lift is added to the
-                // *rendered* Y only â€” currentFeetY still tracks the real floor
+                // Fluent parabolic hop via sin(πt). The lift is added to the
+                // *rendered* Y only — currentFeetY still tracks the real floor
                 // so gravity resumes correctly when the arc lands.
                 double t = jumpStep / (double) jumpSpan;
                 int lift = (int) Math.round(Math.sin(Math.PI * Math.min(1.0, t)) * jumpPeak);
                 renderY = Math.max(0, y - lift);
                 jumpStep++;
                 if (jumpStep >= jumpSpan) {
-                    // Arc finished â€” drop the plan so the next step (or the
+                    // Arc finished — drop the plan so the next step (or the
                     // next overlap) gets a fresh roll. Latching JUMP past the
                     // arc would silently disable STOP/HUNT/PASS for the rest
                     // of the walk if we're still overlapping a sibling.
@@ -3789,7 +3789,7 @@ public abstract class Pet implements Runnable {
      * the pets visible variety beyond ambient pacing.
      *
      * <p>Going off-screen relies on {@link JFrame#setLocation} not clamping
-     * â€” same mechanism used by the spawn entry walk, which starts the pet
+     * — same mechanism used by the spawn entry walk, which starts the pet
      * outside the screen.
      */
     public final void disappearAndReappear(World world) {
@@ -3813,7 +3813,7 @@ public abstract class Pet implements Runnable {
             return;
         }
         // If the user hovered/clicked while we were walking off-screen,
-        // abort the disappear and walk BACK inward to the original spot â€”
+        // abort the disappear and walk BACK inward to the original spot —
         // teleporting to the opposite edge and re-entering would feel
         // jarring when the user is clearly trying to interact.
         if (hovered || clicked.get()) {
@@ -3894,7 +3894,7 @@ public abstract class Pet implements Runnable {
 
     private void hearts() {
         for (int i = 0; i < HEART_FRAME_COUNT; i++) {
-            // Bail as soon as the cursor leaves the pet's frame â€” the
+            // Bail as soon as the cursor leaves the pet's frame — the
             // bubble is a hover feedback, not an unconditional animation,
             // so we shouldn't keep playing the remaining frames once the
             // user has moved on.
@@ -4074,7 +4074,7 @@ public abstract class Pet implements Runnable {
             return;
         }
         Rectangle mon = currentMonitorBounds();
-        // Bail out if the cursor is on a different monitor â€” pets stay put
+        // Bail out if the cursor is on a different monitor — pets stay put
         // rather than walking across off-monitor virtual coordinates.
         if (!mon.contains(cursor)) {
             idle();
@@ -4133,8 +4133,8 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Hold the current perch and play idle frames at 2Ã— speed for
-     * {@code ms} â€” visualises a "singing" / chirping bird without new
+     * Hold the current perch and play idle frames at 2× speed for
+     * {@code ms} — visualises a "singing" / chirping bird without new
      * sprites. Resets to a single idle tile at the end so behaviour
      * looks normal again.
      */
@@ -4221,7 +4221,7 @@ public abstract class Pet implements Runnable {
 
     /**
      * High-perch leap: if a window taller than the current floor is in
-     * jump range (within ~pet-width horizontally and at most ~2Ã— pet-height
+     * jump range (within ~pet-width horizontally and at most ~2× pet-height
      * above current feet), walk to its column and "land" on its top via
      * {@link #walkAlongFloor} (which gravity-snaps onto the perch).
      * Otherwise no-op idle.
@@ -4244,7 +4244,7 @@ public abstract class Pet implements Runnable {
             idle();
             return;
         }
-        // Walk to the horizontal center of the chosen perch â€” clamped so
+        // Walk to the horizontal center of the chosen perch — clamped so
         // the pet ends up over the perch, not off its edge. Gravity in
         // walkAlongFloor would refuse to climb up onto it, so we
         // explicitly jump-snap to the perch top before the horizontal walk.
@@ -4344,7 +4344,7 @@ public abstract class Pet implements Runnable {
 
     /**
      * Scratch an itch in place. The pet sits, then alternates the
-     * {@code /scratch} pose with {@code /look/1} a few times â€” reads as
+     * {@code /scratch} pose with {@code /look/1} a few times — reads as
      * a leg-kick / paw-flap scratching motion regardless of species. A
      * small {@code paw} emote bobs above to telegraph the "itch", and
      * BOREDOM gets a modest bump like the other one-off filler moves
@@ -4407,7 +4407,7 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Ducky-style left-right combo idle: cycles look/0 â†” look/1 with
+     * Ducky-style left-right combo idle: cycles look/0 ↔ look/1 with
      * pauses ("quack-combo" / sideways waggle). Generic so non-ducky pets
      * can call it too if their personality is set up to.
      */
@@ -4422,10 +4422,10 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Headless-safe virtual screen size â€” the union of every connected
+     * Headless-safe virtual screen size — the union of every connected
      * monitor's bounds (so pets can wander across a multi-monitor setup
      * whose primary is at the origin). Falls back to the primary monitor,
-     * and finally to 1920Ã—1080 if AWT is headless (tests).
+     * and finally to 1920×1080 if AWT is headless (tests).
      *
      * <p>Note: we only return width/height as a {@link Dimension}, so this
      * still loses the virtual-screen X/Y offset. That means monitors
@@ -4437,7 +4437,7 @@ public abstract class Pet implements Runnable {
         try {
             GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
             // Seed from the first device rather than an empty (0,0,0,0)
-            // Rectangle â€” Rectangle.union treats the empty seed as a point
+            // Rectangle — Rectangle.union treats the empty seed as a point
             // at the origin and would inflate the width whenever no monitor
             // actually contains (0,0) (e.g. primary at x=1920).
             Rectangle virt = null;
