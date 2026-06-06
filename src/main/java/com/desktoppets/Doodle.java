@@ -4,9 +4,9 @@ import java.awt.Component;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URL;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -149,11 +149,11 @@ public final class Doodle {
     }
 
     private static Object loadSource(String classpathPath) {
-        URL url = Doodle.class.getResource("/" + classpathPath);
-        if (url == null) {
+        byte[] bytes = ResourceBytes.read(classpathPath);
+        if (bytes == null) {
             return MISSING;
         }
-        try (InputStream in = url.openStream()) {
+        try (InputStream in = new ByteArrayInputStream(bytes)) {
             SVGDocument doc = SVG.load(in);
             return doc != null ? doc : MISSING;
         } catch (IOException e) {
@@ -373,6 +373,8 @@ public final class Doodle {
             case "seed": return "Sprites/Props/seed.svg";
             case "gift": return "Sprites/Props/gift.svg";
             case "tree": return "Sprites/Props/tree.svg";
+            case "ufo":  return "Sprites/Props/ufo.svg";
+            case "ufo-beam": return "Sprites/Props/ufo-beam.svg";
             default:     return null;
         }
     }

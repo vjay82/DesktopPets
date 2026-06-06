@@ -13,6 +13,7 @@ public final class Main {
     }
 
     public static void main(String[] args) {
+        boolean triggerUfo = hasFlag(args, "--ufo", "-ufo", "ufo");
         Log.info("main", "Desktop Pets starting (procedural graphics)");
         // Begin sampling the cursor in the background so HUNT_CURSOR
         // (and any other motion-aware activity) has an accurate recent
@@ -27,12 +28,39 @@ public final class Main {
         PetSupervisor supervisor = new PetSupervisor();
         SwingUtilities.invokeLater(() -> new TrayApp(supervisor).install());
         supervisor.reconcile(Config.readPets());
-        // Start the wandering-bird scheduler AFTER residents reconcile so
-        // its first poll already sees the live pet list.
-        BirdVisitor.start(supervisor);
-        // Rare cross-species visits for the solo-pet case: a lone cat may
-        // get visited by a ducky/dog (or vice versa) every ~25 min on
-        // average. No-op when 0 or 2+ residents are active.
-        PetVisitor.start(supervisor);
+        // Central special-events scheduler: one daemon timer drives every rare
+        // cosmetic event (wandering bird, cross-species solo-pet visitor, and
+        // the UFO spectacle). Each event self-gates on there being at least
+        // one active (visible) resident pet, so nothing appears on an empty
+        // desktop. The timer thread itself is started on the first pet's
+        // activation and stopped after the last pet leaves (see
+        // startWhenResidentsPresent below). New events: implement
+        // SpecialEvents.Event and register() it here.
+        SpecialEvents specialEvents = new SpecialEvents(supervisor);
+        specialEvents.register(BirdVisitor.event());
+        specialEvents.register(PetVisitor.event());
+        specialEvents.register(UfoVisitor.event());
+        // Residents were just reconciled above, so this starts the timer
+        // immediately when config.txt lists any pets; with an empty config it
+        // stays idle until the user adds a pet from the tray.
+        specialEvents.startWhenResidentsPresent();
+        // `--ufo` on the command line fires one visit immediately (once a
+        // resident is alive) so the otherwise-rare event can be demoed.
+        if (triggerUfo) {
+            Log.info("main", "--ufo flag set: triggering a UFO visit now");
+            UfoVisitor.triggerOnce(supervisor);
+        }
+    }
+
+    /** True iff any of {@code names} appears in {@code args} (case-insensitive). */
+    private static boolean hasFlag(String[] args, String... names) {
+        for (String arg : args) {
+            for (String name : names) {
+                if (name.equalsIgnoreCase(arg)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

@@ -5,6 +5,7 @@ import java.awt.Image;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -267,19 +268,19 @@ final class Sprites {
     }
 
     private static Object loadSource(String classpathPath) {
-        URL url = Sprites.class.getResource("/" + classpathPath);
-        if (url == null) {
+        byte[] bytes = ResourceBytes.read(classpathPath);
+        if (bytes == null) {
             return MISSING;
         }
         if (classpathPath.toLowerCase(Locale.ROOT).endsWith(".svg")) {
-            try (InputStream in = url.openStream()) {
+            try (InputStream in = new ByteArrayInputStream(bytes)) {
                 SVGDocument doc = SVG.load(in);
                 return doc != null ? doc : MISSING;
             } catch (IOException e) {
                 return MISSING;
             }
         }
-        return new ImageIcon(url);
+        return new ImageIcon(bytes);
     }
 
     private record ScaledKey(String path, int w, int h) {

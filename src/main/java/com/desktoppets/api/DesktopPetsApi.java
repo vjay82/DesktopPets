@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.ImageIcon;
-import javax.swing.SwingUtilities;
 
 import com.desktoppets.BirdVisitor;
 import com.desktoppets.Config;
@@ -15,6 +14,9 @@ import com.desktoppets.Doodle;
 import com.desktoppets.Log;
 import com.desktoppets.Pet;
 import com.desktoppets.PetSupervisor;
+import com.desktoppets.PetVisitor;
+import com.desktoppets.SpecialEvents;
+import com.desktoppets.UfoVisitor;
 import com.desktoppets.World;
 
 /**
@@ -43,7 +45,13 @@ public final class DesktopPetsApi {
     private static final Object LOCK = new Object();
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
     private static PetSupervisor supervisor;
-    private static boolean visitorBirdsStarted;
+    /** Central scheduler driving all rare special events (bird / cross-species
+     *  visitor / UFO). Recreated per start() so it binds to the live
+     *  supervisor; stopped on stop() so no orphan timer polls a dead one. */
+    private static SpecialEvents specialEvents;
+    /** Handle to the wandering-bird event so its enabled state can follow the
+     *  user's {@code visitorBirdsEnabled} toggle on every reconcile. */
+    private static SpecialEvents.Registration birdRegistration;
 
     private DesktopPetsApi() {
     }
@@ -256,6 +264,27 @@ public final class DesktopPetsApi {
                     Log.warn("api", "cursor sampler failed: " + t);
                 }
                 supervisor = new PetSupervisor();
+                // Central scheduler for all rare special events (UFO,
+                // cross-species solo-pet visitor, wandering bird). Each event
+                // self-gates on there being at least one active (visible)
+                // resident pet, so nothing appears on an empty desktop or
+                // while pets are hidden during a meeting. Bound to the
+                // freshly-created supervisor so it re-wires correctly across
+                // any stop()/start() cycle. Its single timer thread starts on
+                // the first pet's activation (during the applyLocked reconcile
+                // below) and stops after the last pet is removed. The bird's
+                // enabled state is then driven by the user's
+                // visitorBirdsEnabled toggle in applyLocked(); UFO +
+                // cross-species visitor are always on.
+                try {
+                    specialEvents = new SpecialEvents(supervisor);
+                    specialEvents.register(UfoVisitor.event());
+                    specialEvents.register(PetVisitor.event());
+                    birdRegistration = specialEvents.register(BirdVisitor.event());
+                    specialEvents.startWhenResidentsPresent();
+                } catch (Throwable t) {
+                    Log.warn("api", "SpecialEvents start failed: " + t);
+                }
                 RUNNING.set(true);
             }
             applyLocked(cfg);
@@ -285,6 +314,18 @@ public final class DesktopPetsApi {
         synchronized (LOCK) {
             if (!RUNNING.get()) return;
             Log.info("api", "DesktopPetsApi.stop()");
+            // Stop the special-events timer first so it can't poll the
+            // supervisor we're about to tear down (and so the next start()
+            // doesn't leave an orphan scheduler running).
+            if (specialEvents != null) {
+                try {
+                    specialEvents.stop();
+                } catch (Throwable t) {
+                    Log.warn("api", "specialEvents.stop failed: " + t);
+                }
+                specialEvents = null;
+                birdRegistration = null;
+            }
             if (supervisor != null) {
                 try {
                     supervisor.shutdown();
@@ -397,17 +438,14 @@ public final class DesktopPetsApi {
         supervisor.setActivityLevel(cfg.getActivity());
         supervisor.reconcileCounts(new LinkedHashMap<>(cfg.getCounts()),
                 cfg.hueByKey(), cfg.scaleByKey());
-        if (cfg.isVisitorBirdsEnabled() && !visitorBirdsStarted) {
-            // BirdVisitor.start() registers timers; calling it twice would
-            // schedule duplicate visitors, hence the guard.
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    BirdVisitor.start(supervisor);
-                } catch (Throwable t) {
-                    Log.warn("api", "BirdVisitor.start failed: " + t);
-                }
-            });
-            visitorBirdsStarted = true;
+        // The wandering-bird event is user-toggleable; UFO and the
+        // cross-species visitor are always-on (each still gated centrally on
+        // there being an active resident pet). Unlike the old one-way guard,
+        // toggling visitorBirdsEnabled now takes effect on the next reconcile
+        // without a restart — the central scheduler just stops/starts firing
+        // the bird event, no thread churn.
+        if (birdRegistration != null) {
+            birdRegistration.setEnabled(cfg.isVisitorBirdsEnabled());
         }
     }
 }

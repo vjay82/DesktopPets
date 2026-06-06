@@ -17,6 +17,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
 
@@ -481,6 +482,12 @@ public abstract class Pet implements Runnable {
             if (other == this || other.frame == null || !other.isVisitor()) {
                 continue;
             }
+            // The UFO-event alien runs its own self-contained cinematic and
+            // must not be chased: it ignores scare/knock-down, so a hunting
+            // resident would just stand next to it pointlessly. Leave it be.
+            if (other.ufoEvent) {
+                continue;
+            }
             Rectangle otherMon = other.currentMonitorBounds();
             if (otherMon.x != myMon.x || otherMon.y != myMon.y) {
                 continue;
@@ -752,6 +759,17 @@ public abstract class Pet implements Runnable {
     public volatile Boolean plannedSpawnFromRight;
     public volatile Boolean plannedSpawnFromAbove;
 
+    /**
+     * Set by {@link UfoVisitor} before the thread starts to run the special
+     * "UFO visit" cinematic instead of the normal {@link #runVisitorLoop}:
+     * a flying saucer descends, the pet is beamed down, wanders a few
+     * body-widths away, dances, returns under the saucer, and is beamed
+     * back up before the saucer flies off. The pet must also be a visitor
+     * ({@link #markAsVisitor()}); a green {@link #hueShift} makes it read as
+     * a little alien. See {@link #runUfoEventLoop()}.
+     */
+    public volatile boolean ufoEvent = false;
+
     /** Set by {@link #scare(int)} from a hunting pet's thread; read by the
      *  visitor loop to break out of the idle hold and fly off early. */
     public volatile boolean scared = false;
@@ -825,6 +843,208 @@ public abstract class Pet implements Runnable {
         }
         disposeWindow();
         Log.info("pet:" + name, "visitor departed");
+    }
+
+    // ---------------- UFO visit (rare green-alien cinematic) ----------------
+
+    /**
+     * The rare "UFO visit" event scheduled by {@link UfoVisitor}. Instead of
+     * the plain perch loop, this (visitor) pet stars in a self-contained
+     * cinematic:
+     * <ol>
+     *   <li>a flying saucer descends from above the monitor and hovers over
+     *       the landing column;</li>
+     *   <li>a tractor beam switches on and the pet is beamed down to the
+     *       floor (the pet stays hidden until this moment, so it really does
+     *       "arrive" with the saucer);</li>
+     *   <li>the pet wanders a few body-widths away from under the saucer;</li>
+     *   <li>does a {@link #dance()};</li>
+     *   <li>walks back under the saucer;</li>
+     *   <li>is beamed back up, and the saucer flies off the top of the
+     *       monitor.</li>
+     * </ol>
+     * Everything runs on this pet's own behaviour thread, which also owns
+     * and animates the saucer's {@link PetWindow} directly, so the whole
+     * sequence is a single linear script with no cross-thread choreography.
+     * The saucer window is disposed alongside the pet window in the finally
+     * block, even when the thread is interrupted mid-script (app shutdown).
+     * A green {@link #hueShift} (set by {@link UfoVisitor}) makes the pet
+     * read as a little alien.
+     */
+    private void runUfoEventLoop() {
+        Log.info("pet:" + name, "ufo event begin");
+        World world = World.snapshot(
+                (int) screen.getWidth(), (int) screen.getHeight());
+        reassertTopmost();
+        // The pet is beamed down, not walked in: drop any entry walk that
+        // initOnEdt queued.
+        pendingEntryTargetX = null;
+        pendingEntryTargetY = null;
+
+        Rectangle mon = currentMonitorBounds();
+        int petW = effectiveWidth();
+        int landX = plannedSpawnTargetX != null ? plannedSpawnTargetX : logicalLocation().x;
+        landX = Math.max(mon.x + 4, Math.min(mon.x + mon.width - petW - 4, landX));
+        int petFloorTopY = floorYAt(world, landX);
+        int feetH = Math.max(1, (int) Math.round(effectiveHeight() * feetYRatio()));
+        int groundY = petFloorTopY + feetH;
+
+        // Saucer geometry: a square window ~1.9x the pet, centred on the
+        // landing column, whose bottom edge sits on the floor so the beam
+        // (lower half of ufo-beam.svg) reaches the ground.
+        int ufoSize = Math.max(48, (int) Math.round(petSize * 1.9));
+        int ufoX = Math.max(mon.x,
+                Math.min(mon.x + mon.width - ufoSize, landX + petW / 2 - ufoSize / 2));
+        int ufoHoverY = groundY - ufoSize;
+        int ufoStartY = mon.y - ufoSize - 8; // fully above the monitor (clipped)
+        // Y the pet rises to / drops from while in the beam: just under the
+        // saucer disc (~0.58 of the way down the square sprite).
+        int beamTopY = ufoHoverY + (int) Math.round(ufoSize * 0.58);
+
+        // Hide the pet at the landing column until it is beamed down.
+        setPetWindowVisible(false);
+        moveFrameTo(landX, petFloorTopY);
+        applySprite(idleFrames().get(0));
+
+        // Build + show the saucer window above the monitor.
+        PetWindow ufo = new PetWindow();
+        JLabel ufoLabel = new JLabel();
+        ufo.add(ufoLabel);
+        final int fUfoSize = ufoSize;
+        onEdt(() -> ufoLabel.setBounds(0, 0, fUfoSize, fUfoSize));
+        ufo.showOnMonitor(mon, ufoX, ufoStartY, ufoSize, ufoSize);
+        setUfoSprite(ufoLabel, ufoSize, false);
+
+        try {
+            // 1) Descend to the hover height.
+            animateUfoWindow(ufo, ufoX, ufoStartY, ufoX, ufoHoverY, 26, 18L);
+            if (interrupted()) {
+                return;
+            }
+            sleepInterruptible(250L);
+
+            // 2) Beam down: beam on, slide the pet from under the disc down
+            //    to the floor, sparkle, beam off.
+            setUfoSprite(ufoLabel, ufoSize, true);
+            setPetWindowVisible(true);
+            ufoBeamPet(beamTopY, petFloorTopY, landX, true);
+            showEmote("sparkle", 350L);
+            setUfoSprite(ufoLabel, ufoSize, false);
+            if (interrupted()) {
+                return;
+            }
+            idle();
+
+            // 3) Wander a few body-widths toward the roomier side.
+            int dir = landX < mon.x + mon.width / 2 ? 1 : -1;
+            int gap = (int) Math.round(petSize * (1.5 + ThreadLocalRandom.current().nextDouble()));
+            int awayX = Math.max(mon.x + 4,
+                    Math.min(mon.x + mon.width - petW - 4, landX + dir * gap));
+            walkAlongFloor(world, awayX);
+            if (interrupted()) {
+                return;
+            }
+            sleepInterruptible(200L);
+
+            // 4) Dance.
+            dance();
+            if (interrupted()) {
+                return;
+            }
+            sleepInterruptible(200L);
+
+            // 5) Return under the saucer.
+            walkAlongFloor(world, landX);
+            if (interrupted()) {
+                return;
+            }
+            moveFrameTo(landX, petFloorTopY);
+            idle();
+
+            // 6) Beam up: beam on, sparkle, lift the pet into the saucer, hide.
+            setUfoSprite(ufoLabel, ufoSize, true);
+            showEmote("sparkle", 300L);
+            ufoBeamPet(beamTopY, petFloorTopY, landX, false);
+            setPetWindowVisible(false);
+            if (interrupted()) {
+                return;
+            }
+
+            // 7) The saucer flies away off the top of the monitor.
+            sleepInterruptible(150L);
+            setUfoSprite(ufoLabel, ufoSize, false);
+            animateUfoWindow(ufo, ufoX, ufoHoverY, ufoX, ufoStartY, 30, 14L);
+        } finally {
+            ufo.dispose();
+            disposeWindow();
+            Log.info("pet:" + name, "ufo event end");
+        }
+    }
+
+    /**
+     * Slide the pet vertically along the tractor beam between the saucer
+     * underside ({@code saucerTopY}) and its floor position
+     * ({@code floorTopY}) at column {@code x}. {@code descend} true beams
+     * the pet down (saucer → floor); false beams it up (floor → saucer).
+     */
+    private void ufoBeamPet(int saucerTopY, int floorTopY, int x, boolean descend) {
+        int y0 = descend ? saucerTopY : floorTopY;
+        int y1 = descend ? floorTopY : saucerTopY;
+        applySprite(doodleKind() + "/sit");
+        int steps = 16;
+        for (int i = 0; i <= steps && !interrupted(); i++) {
+            double t = i / (double) steps;
+            moveFrameTo(x, (int) Math.round(y0 + (y1 - y0) * t));
+            sleepInterruptible(28L);
+        }
+        moveFrameTo(x, y1);
+        if (descend) {
+            applySprite(idleFrames().get(0));
+        }
+    }
+
+    /**
+     * Move the saucer's {@link PetWindow} from {@code (x0,y0)} to
+     * {@code (x1,y1)} over {@code steps} eased steps. Runs on the pet's
+     * behaviour thread; {@link PetWindow#setLocation} marshals each move to
+     * the EDT.
+     */
+    private void animateUfoWindow(PetWindow ufo, int x0, int y0, int x1, int y1,
+            int steps, long stepDelayMs) {
+        for (int i = 1; i <= steps && !interrupted(); i++) {
+            double e = ufoSmoothstep(i / (double) steps);
+            ufo.setLocation(
+                    (int) Math.round(x0 + (x1 - x0) * e),
+                    (int) Math.round(y0 + (y1 - y0) * e));
+            sleepInterruptible(stepDelayMs);
+        }
+        ufo.setLocation(x1, y1);
+    }
+
+    /** Set the saucer label's icon (no hue — the saucer keeps its own
+     *  colours; only the alien pet is tinted green). */
+    private static void setUfoSprite(JLabel label, int size, boolean beam) {
+        ImageIcon icon = Doodle.icon(beam ? "prop/ufo-beam" : "prop/ufo", size);
+        onEdt(() -> label.setIcon(icon));
+    }
+
+    /** Show/hide this pet's window on the EDT — used to keep the pet hidden
+     *  until it is beamed down, and again once it is beamed back up. */
+    private void setPetWindowVisible(boolean visible) {
+        if (frame == null) {
+            return;
+        }
+        onEdt(() -> {
+            if (frame != null) {
+                frame.setVisible(visible);
+            }
+        });
+    }
+
+    /** Smoothstep ease (3t² − 2t³) for the saucer glide in/out. */
+    private static double ufoSmoothstep(double t) {
+        double c = Math.max(0.0, Math.min(1.0, t));
+        return c * c * (3.0 - 2.0 * c);
     }
 
     /**
@@ -1188,7 +1408,11 @@ public abstract class Pet implements Runnable {
         ACTIVE_PETS.add(this);
         try {
             if (isVisitor()) {
-                runVisitorLoop();
+                if (ufoEvent) {
+                    runUfoEventLoop();
+                } else {
+                    runVisitorLoop();
+                }
             } else {
                 new BehaviorEngine(this).run();
             }

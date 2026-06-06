@@ -6,20 +6,21 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Schedules occasional visits from a wild {@link Bird}. Runs on a single
- * daemon thread that wakes every {@link #POLL_INTERVAL_MS} milliseconds
- * and, with probability {@link #SPAWN_PROBABILITY_PER_POLL}, asks the
- * supervisor to spawn a Bird at a column near (but not overlapping) a
- * randomly-chosen resident pet.
+ * Schedules occasional visits from a wild {@link Bird}. Driven by the central
+ * {@link SpecialEvents} scheduler: when the bird event is due, with
+ * probability {@link #SPAWN_PROBABILITY_PER_POLL} it asks the supervisor to
+ * spawn a Bird at a column near (but not overlapping) a randomly-chosen
+ * <em>active</em> resident pet.
  *
- * <p>Preconditions for a spawn:
+ * <p>The shared preconditions are enforced once, centrally, by
+ * {@link SpecialEvents} before {@link #event()}'s {@code attempt} runs:
  * <ul>
- *   <li>at least one resident pet is alive ({@link
- *       PetSupervisor#livePets()} non-empty) — without an "anchor" pet to
- *       sit near there is nothing for the visitor to be a visitor TO;</li>
- *   <li>no visitor is currently alive ({@link
- *       PetSupervisor#hasActiveVisitor()} false) — at most one bird at a
- *       time keeps the gag rare and avoids the chaos of multiple hunts.</li>
+ *   <li>at least one resident pet is <em>active</em> (alive and on screen —
+ *       see {@link SpecialEvents#activeResidents(PetSupervisor)}); without an
+ *       "anchor" pet to sit near there is nothing to be a visitor TO, and a
+ *       bird must never appear while every pet is hidden;</li>
+ *   <li>no visitor is currently alive — at most one bird at a time keeps the
+ *       gag rare and avoids the chaos of multiple hunts.</li>
  * </ul>
  *
  * <p>The scheduler does not own any state across spawns: each pass either
@@ -48,41 +49,34 @@ public final class BirdVisitor {
     private BirdVisitor() {
     }
 
-    /** Start the scheduler. Idempotent in spirit — repeated calls would
-     *  start additional threads, so {@link Main} only calls it once. */
-    public static void start(PetSupervisor supervisor) {
-        Thread t = new Thread(() -> loop(supervisor), "bird-visitor-scheduler");
-        t.setDaemon(true);
-        t.start();
-    }
+    /**
+     * The bird visit as a {@link SpecialEvents.Event}, driven by the central
+     * {@link SpecialEvents} scheduler. The shared preconditions (no other
+     * visitor active; at least one <em>active</em>, on-screen resident pet)
+     * are enforced by the scheduler before this is called, so {@code attempt}
+     * only rolls its own probability and spawns. {@code activeResidents} is
+     * guaranteed non-empty.
+     */
+    public static SpecialEvents.Event event() {
+        return new SpecialEvents.Event() {
+            @Override
+            public String id() {
+                return "bird-visitor";
+            }
 
-    private static void loop(PetSupervisor supervisor) {
-        Log.info("bird-visitor", "scheduler started");
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
-                Thread.sleep(POLL_INTERVAL_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
+            @Override
+            public long pollIntervalMs() {
+                return POLL_INTERVAL_MS;
             }
-            if (supervisor.hasActiveVisitor()) {
-                continue;
+
+            @Override
+            public void attempt(PetSupervisor supervisor, List<Pet> activeResidents) {
+                if (ThreadLocalRandom.current().nextDouble() >= SPAWN_PROBABILITY_PER_POLL) {
+                    return;
+                }
+                trySpawn(supervisor, activeResidents);
             }
-            List<Pet> live = supervisor.livePets();
-            if (live.isEmpty()) {
-                continue;
-            }
-            if (ThreadLocalRandom.current().nextDouble() >= SPAWN_PROBABILITY_PER_POLL) {
-                continue;
-            }
-            try {
-                trySpawn(supervisor, live);
-            } catch (Throwable t) {
-                // Never let a one-off scheduling failure kill the loop —
-                // the bird is a non-essential cosmetic feature.
-                Log.warn("bird-visitor", "spawn failed: " + t);
-            }
-        }
+        };
     }
 
     /**

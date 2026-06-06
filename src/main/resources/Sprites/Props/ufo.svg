@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Prop: flying saucer used by the rare UFO-visit event (UfoVisitor).
+       Square viewBox so it renders through Doodle.render like the other
+       Sprites/Props/*.svg. The saucer occupies the upper-middle band
+       (y ~19..60) leaving the lower portion transparent; the ufo-beam.svg
+       variant fills that lower portion with a tractor beam. -->
+  <defs>
+    <linearGradient id="ufoDisc" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eef3f7"/>
+      <stop offset="0.45" stop-color="#b8c4d0"/>
+      <stop offset="1" stop-color="#5f6e7d"/>
+    </linearGradient>
+    <radialGradient id="ufoDome" cx="0.42" cy="0.32" r="0.8">
+      <stop offset="0" stop-color="#e3faff"/>
+      <stop offset="0.55" stop-color="#84d2f2"/>
+      <stop offset="1" stop-color="#327ea3"/>
+    </radialGradient>
+  </defs>
+  <!-- Dome / cockpit -->
+  <ellipse cx="50" cy="35" rx="20" ry="16" fill="url(#ufoDome)" stroke="#21506a" stroke-width="1.6"/>
+  <ellipse cx="42" cy="29" rx="6.5" ry="4" fill="#ffffff" opacity="0.55"/>
+  <!-- Saucer disc -->
+  <ellipse cx="50" cy="47" rx="45" ry="13.5" fill="url(#ufoDisc)" stroke="#36424f" stroke-width="2"/>
+  <!-- Underside shadow -->
+  <ellipse cx="50" cy="52" rx="31" ry="6.5" fill="#46515f" opacity="0.55"/>
+  <!-- Rim lights -->
+  <circle cx="21" cy="48" r="2.8" fill="#ffe14d"/>
+  <circle cx="35.5" cy="51" r="2.8" fill="#ff8a3d"/>
+  <circle cx="50" cy="52.5" r="2.8" fill="#ff5277"/>
+  <circle cx="64.5" cy="51" r="2.8" fill="#8cff5a"/>
+  <circle cx="79" cy="48" r="2.8" fill="#54d7ff"/>
+</svg>

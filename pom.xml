@@ -71,6 +71,52 @@
                 </configuration>
             </plugin>
 
+            <!--
+                Strip XML comments from the SVG sprites in the BUILD OUTPUT only.
+                The source files under src/main/resources keep their explanatory
+                comments; this runs against the already-copied resources in
+                target/classes (prepare-package, after process-resources and
+                before the jar/shade goals in the package phase), so both the
+                thin jar and the shaded -all jar ship comment-free SVGs.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>strip-svg-comments</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <!-- A double-dash can never appear inside an
+                                     XML comment, so a non-greedy dot-all match
+                                     captures each comment exactly. -->
+                                <replaceregexp
+                                        flags="gs"
+                                        encoding="UTF-8"
+                                        match="&lt;!--.*?--&gt;"
+                                        replace="">
+                                    <fileset dir="${project.build.outputDirectory}" includes="**/*.svg"/>
+                                </replaceregexp>
+                                <!-- Drop the now-blank lines the removed
+                                     comments left behind. These sprites use no
+                                     &lt;text&gt;/xml:space content, so inter-element
+                                     whitespace is insignificant. -->
+                                <replaceregexp
+                                        flags="gm"
+                                        encoding="UTF-8"
+                                        match="^[ \t]*\r?\n"
+                                        replace="">
+                                    <fileset dir="${project.build.outputDirectory}" includes="**/*.svg"/>
+                                </replaceregexp>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>

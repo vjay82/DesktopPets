@@ -8,6 +8,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /**
  * Owns the set of live pet threads and reconciles them with a desired list of
@@ -35,6 +36,13 @@ public final class PetSupervisor {
     private boolean paused = false;
     private int petSize = Config.DEFAULT_SIZE;
     private double activityLevel = Config.DEFAULT_ACTIVITY;
+    /** Cached "is the resident roster non-empty" flag, guarded by {@code this}.
+     *  Lets {@link #presenceListener} fire only on the empty<->non-empty
+     *  transitions instead of on every reconcile. */
+    private boolean residentsPresent = false;
+    /** Notified when the resident roster crosses between empty and non-empty.
+     *  See {@link #setResidentPresenceListener(Consumer)}. */
+    private volatile Consumer<Boolean> presenceListener;
 
     public PetSupervisor() {
         this.petSize = Config.readPetSize();
@@ -113,6 +121,7 @@ public final class PetSupervisor {
 
         List<PetHandle> toStop = new ArrayList<>();
         List<PetHandle> toStart = new ArrayList<>();
+        int presenceTransition = 0;
         synchronized (this) {
             for (String key : new HashSet<>(live.keySet())) {
                 if (!wantedKeyToSpecies.containsKey(key)) {
@@ -143,6 +152,7 @@ public final class PetSupervisor {
                     Log.warn("supervisor", "skipping unknown pet: " + ex.getMessage());
                 }
             }
+            presenceTransition = recomputeResidentPresence();
         }
         for (PetHandle h : toStop) {
             // Animated exit: the pet walks off the nearest monitor edge
@@ -159,6 +169,7 @@ public final class PetSupervisor {
             Log.info("supervisor", "reconcileCounts → " + wantedKeyToSpecies.keySet()
                     + " (+" + toStart.size() + " -" + toStop.size() + ")");
         }
+        fireResidentPresence(presenceTransition);
     }
 
     public synchronized void setPaused(boolean p) {
@@ -213,15 +224,20 @@ public final class PetSupervisor {
         Log.info("supervisor", "activityLevel=" + clamped);
     }
 
-    public synchronized void shutdown() {
-        for (PetHandle h : live.values()) {
-            h.stop();
+    public void shutdown() {
+        int presenceTransition;
+        synchronized (this) {
+            for (PetHandle h : live.values()) {
+                h.stop();
+            }
+            live.clear();
+            for (PetHandle h : visitors) {
+                h.stop();
+            }
+            visitors.clear();
+            presenceTransition = recomputeResidentPresence();
         }
-        live.clear();
-        for (PetHandle h : visitors) {
-            h.stop();
-        }
-        visitors.clear();
+        fireResidentPresence(presenceTransition);
     }
 
     // ---------------- visitor pets ----------------
@@ -266,6 +282,71 @@ public final class PetSupervisor {
             }
         }
         return out;
+    }
+
+    /**
+     * Register a listener notified when the resident roster crosses between
+     * empty and non-empty: {@code accept(true)} the moment the FIRST resident
+     * pet is activated, {@code accept(false)} once the LAST resident is
+     * removed. Visitor guests (bird / UFO / cross-species drop-ins) never
+     * count — only residents.
+     *
+     * <p>The listener is invoked once immediately with the CURRENT presence
+     * state, so a caller that wires up after pets already exist (e.g. the
+     * standalone app reconciles {@code config.txt} before attaching the
+     * special-events scheduler) lands in the correct state. After that it
+     * fires only on real transitions. It runs outside this supervisor's
+     * monitor and any exception it throws is caught and logged.
+     *
+     * <p>{@link SpecialEvents#startWhenResidentsPresent()} uses this to run
+     * its single timer thread only while at least one resident pet is around
+     * to witness a special event — no background timer on an empty desktop.
+     */
+    public void setResidentPresenceListener(Consumer<Boolean> listener) {
+        boolean present;
+        synchronized (this) {
+            this.presenceListener = listener;
+            this.residentsPresent = !live.isEmpty();
+            present = this.residentsPresent;
+        }
+        if (listener != null) {
+            try {
+                listener.accept(present);
+            } catch (Throwable t) {
+                Log.warn("supervisor", "resident presence listener failed: " + t);
+            }
+        }
+    }
+
+    /** Caller must hold {@code this}. Refreshes {@link #residentsPresent} and
+     *  returns {@code +1} if residents just appeared, {@code -1} if the last
+     *  one just left, or {@code 0} if there was no empty<->non-empty change. */
+    private int recomputeResidentPresence() {
+        boolean present = !live.isEmpty();
+        if (present == residentsPresent) {
+            return 0;
+        }
+        residentsPresent = present;
+        return present ? 1 : -1;
+    }
+
+    /** Fire {@link #presenceListener} for the transition returned by
+     *  {@link #recomputeResidentPresence()}. Must be called OUTSIDE the
+     *  monitor so the listener (which may start/stop threads) can't deadlock
+     *  against {@link #livePets()} et al. */
+    private void fireResidentPresence(int transition) {
+        if (transition == 0) {
+            return;
+        }
+        Consumer<Boolean> listener = presenceListener;
+        if (listener == null) {
+            return;
+        }
+        try {
+            listener.accept(transition > 0);
+        } catch (Throwable t) {
+            Log.warn("supervisor", "resident presence listener failed: " + t);
+        }
     }
 
     private record PetHandle(Pet pet, Thread thread) {

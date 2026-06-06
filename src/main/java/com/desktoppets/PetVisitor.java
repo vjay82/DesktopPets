@@ -10,19 +10,20 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Schedules rare visits from a non-resident pet species when the user is
  * running with only a single resident pet — so a solo cat occasionally
- * gets to meet a wandering ducky or dog (and vice versa). Mirrors
- * {@link BirdVisitor} in shape: a daemon thread polls every
- * {@link #POLL_INTERVAL_MS} ms and, with probability
- * {@link #SPAWN_PROBABILITY_PER_POLL}, spawns one ground visitor that
+ * gets to meet a wandering ducky or dog (and vice versa). Driven by the
+ * central {@link SpecialEvents} scheduler; with probability
+ * {@link #SPAWN_PROBABILITY_PER_POLL} it spawns one ground visitor that
  * uses {@link Pet#runVisitorLoop} (look around, idle, depart).
  *
- * <p>Preconditions for a spawn:
+ * <p>Preconditions for a spawn (the first two are enforced centrally by
+ * {@link SpecialEvents}, the rest by {@link #event()}):
  * <ul>
- *   <li>exactly one resident pet is alive — the point is to give the
- *       <i>solo</i> pet some company; in multi-pet setups the residents
- *       already interact with each other;</li>
  *   <li>no visitor (bird or otherwise) is currently alive — at most one
  *       guest at a time so the screen stays calm;</li>
+ *   <li>exactly one resident pet is <em>active</em> (alive and on screen,
+ *       not hidden during a meeting) — the point is to give the <i>solo</i>
+ *       pet some company; in multi-pet setups the residents already interact
+ *       with each other;</li>
  *   <li>the resident pet is not the same species as the visitor (picked
  *       from the remaining species pool).</li>
  * </ul>
@@ -49,37 +50,38 @@ public final class PetVisitor {
     private PetVisitor() {
     }
 
-    public static void start(PetSupervisor supervisor) {
-        Thread t = new Thread(() -> loop(supervisor), "pet-visitor-scheduler");
-        t.setDaemon(true);
-        t.start();
-    }
+    /**
+     * The cross-species visit as a {@link SpecialEvents.Event}, driven by the
+     * central {@link SpecialEvents} scheduler. Fires only for the
+     * <em>solo-pet</em> case — exactly one active resident — so a lone pet
+     * occasionally gets company while multi-pet setups (whose residents
+     * already interact) are left alone. The scheduler enforces the shared
+     * "no other visitor / at least one active resident" gate; this event adds
+     * the {@code == 1} refinement and rolls its own probability.
+     */
+    public static SpecialEvents.Event event() {
+        return new SpecialEvents.Event() {
+            @Override
+            public String id() {
+                return "pet-visitor";
+            }
 
-    private static void loop(PetSupervisor supervisor) {
-        Log.info("pet-visitor", "scheduler started");
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
-                Thread.sleep(POLL_INTERVAL_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
+            @Override
+            public long pollIntervalMs() {
+                return POLL_INTERVAL_MS;
             }
-            if (supervisor.hasActiveVisitor()) {
-                continue;
+
+            @Override
+            public void attempt(PetSupervisor supervisor, List<Pet> activeResidents) {
+                if (activeResidents.size() != 1) {
+                    return; // only fires for solo-pet setups
+                }
+                if (ThreadLocalRandom.current().nextDouble() >= SPAWN_PROBABILITY_PER_POLL) {
+                    return;
+                }
+                trySpawn(supervisor, activeResidents.get(0));
             }
-            List<Pet> live = supervisor.livePets();
-            if (live.size() != 1) {
-                continue; // only fires for solo-pet setups
-            }
-            if (ThreadLocalRandom.current().nextDouble() >= SPAWN_PROBABILITY_PER_POLL) {
-                continue;
-            }
-            try {
-                trySpawn(supervisor, live.get(0));
-            } catch (Throwable t) {
-                Log.warn("pet-visitor", "spawn failed: " + t);
-            }
-        }
+        };
     }
 
     private static void trySpawn(PetSupervisor supervisor, Pet anchor) {

@@ -64,15 +64,15 @@ public final class TrayApp {
             return;
         }
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            if (trayIcon != null) {
-                try {
-                    SystemTray.getSystemTray().remove(trayIcon);
-                } catch (Throwable ignored) {
-                    // best-effort
-                }
-            }
-        }, "tray-cleanup"));
+        // NOTE: deliberately NO shutdown hook that calls SystemTray.remove().
+        // SystemTray.remove() disposes a hidden AWT Window via
+        // EventQueue.invokeAndWait(), which blocks on the EDT. During JVM
+        // shutdown (Ctrl-C, or System.exit from the EDT) the EDT is itself
+        // busy running shutdown hooks, so that invokeAndWait never returns and
+        // Shutdown.runHooks() hangs forever — the process becomes unkillable by
+        // Ctrl-C. The OS reclaims the tray icon when the process dies anyway;
+        // the explicit removal on the normal Quit path (see shutdown()) covers
+        // the tidy case.
     }
 
     private void openSettings() {
@@ -80,9 +80,36 @@ public final class TrayApp {
     }
 
     private void shutdown(int code) {
-        supervisor.shutdown();
-        if (trayIcon != null) {
-            SystemTray.getSystemTray().remove(trayIcon);
+        // Absolute guarantee that the JVM dies, even if some AWT/EDT operation
+        // below wedges: a daemon watchdog force-halts after a short grace
+        // period. halt() bypasses shutdown hooks and finalizers, so it cannot
+        // itself be blocked by them.
+        Thread watchdog = new Thread(() -> {
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException ignored) {
+                // fall through to halt
+            }
+            Runtime.getRuntime().halt(code);
+        }, "exit-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
+
+        // Guarantee the JVM actually exits even if tearing down the pets or
+        // removing the tray icon throws — otherwise a stray exception here
+        // would leave the process alive with the menu already gone, so the
+        // user could no longer quit.
+        try {
+            supervisor.shutdown();
+        } catch (Throwable t) {
+            Log.warn("tray", "error during supervisor shutdown: " + t);
+        }
+        try {
+            if (trayIcon != null) {
+                SystemTray.getSystemTray().remove(trayIcon);
+            }
+        } catch (Throwable t) {
+            Log.warn("tray", "error removing tray icon: " + t);
         }
         System.exit(code);
     }

@@ -163,9 +163,16 @@ public final class Stage {
     /** Remove the component from whichever stage it's on. EDT-safe. */
     public static void detach(JComponent c) {
         runOnEdt(() -> {
-            if (c.getParent() != null) {
-                c.getParent().remove(c);
-                c.getParent().repaint(); // erase the last paint of this pet
+            // Capture the parent BEFORE remove(): Container.remove(c) clears
+            // c's parent, so a second c.getParent() would return null and the
+            // repaint() below would NPE. That NPE used to abort
+            // PetSupervisor.shutdown() mid-loop when Quit was clicked (which
+            // runs detach inline on the EDT), so System.exit() never ran and
+            // the app could not be closed from the tray menu.
+            java.awt.Container parent = c.getParent();
+            if (parent != null) {
+                parent.remove(c);
+                parent.repaint(); // erase the last paint of this pet
             }
         });
     }
