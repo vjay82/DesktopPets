@@ -178,6 +178,22 @@ public final class Stage {
     }
 
     /**
+     * Bring the component to the FRONT (top) of its stage canvas so it paints
+     * over its siblings (the resident pets). EDT-safe; a no-op if the component
+     * is not currently attached to a stage. Used by the floor-level special
+     * event props (e.g. the cardboard box in front of the kitten inside it).
+     */
+    public static void toFront(JComponent c) {
+        runOnEdt(() -> {
+            java.awt.Container parent = c.getParent();
+            if (parent != null) {
+                parent.setComponentZOrder(c, 0);
+                parent.repaint();
+            }
+        });
+    }
+
+    /**
      * Re-assert each stage window's z-order — kept at the FRONT of the
      * topmost band (see {@link Win32#placeAtShellZOrder}) so the pets float
      * above ordinary windows. Windows that are "on top of the shell bar"

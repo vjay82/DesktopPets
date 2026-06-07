@@ -99,6 +99,12 @@ public final class PetWindow {
         Stage.detach(panel);
     }
 
+    /** Bring this panel to the front of its stage canvas so it paints over the
+     *  pets (e.g. a cardboard box in front of the kitten sitting inside it). */
+    public void toFront() {
+        Stage.toFront(panel);
+    }
+
     /** Initial-bounds variant of {@link #show()} so callers don't have to
      *  setBounds + show separately on first display. */
     public void show(int sx, int sy, int w, int h) {

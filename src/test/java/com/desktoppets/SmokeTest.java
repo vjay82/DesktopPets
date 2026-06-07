@@ -46,7 +46,9 @@ final class SmokeTest {
         }
         for (String prop : new String[]{"ball", "food", "zzz", "tray",
                                           "bone", "fish", "seed", "ufo", "ufo-beam",
-                                          "airplane"}) {
+                                          "airplane", "mouse", "box", "box-open",
+                                          "cloud", "cloud-happy", "rain1", "rain2", "rain3",
+                                          "rain4", "drone", "laser-dot", "sparkle"}) {
             assertNotNull(Doodle.icon("prop/" + prop, 32),
                     "prop/" + prop + " produced null");
         }

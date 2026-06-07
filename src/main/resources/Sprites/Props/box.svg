@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Prop: a CLOSED cardboard box used by the rare "cardboard box" event
+       (CardboardBoxVisitor / Pet.runBoxEventLoop). The box descends closed,
+       wobbles, then swaps to box-open.svg as the pet pokes its head out.
+       Square viewBox so it renders through Doodle.render like the other
+       Sprites/Props/*.svg. -->
+  <defs>
+    <linearGradient id="boxFront" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9b277"/>
+      <stop offset="1" stop-color="#b07f3f"/>
+    </linearGradient>
+    <linearGradient id="boxLid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e7c590"/>
+      <stop offset="1" stop-color="#caa05c"/>
+    </linearGradient>
+  </defs>
+  <!-- Front panel -->
+  <rect x="20" y="44" width="60" height="46" rx="2.5" fill="url(#boxFront)" stroke="#6e4d22" stroke-width="2"/>
+  <!-- Closed top lid -->
+  <rect x="17" y="37" width="66" height="11" rx="2.5" fill="url(#boxLid)" stroke="#6e4d22" stroke-width="2"/>
+  <!-- Lid seam -->
+  <line x1="50" y1="37" x2="50" y2="48" stroke="#6e4d22" stroke-width="1.4"/>
+  <!-- Packing tape -->
+  <rect x="45" y="37" width="10" height="53" fill="#efe4cc" opacity="0.6"/>
+  <!-- Top shading -->
+  <rect x="20" y="44" width="60" height="8" fill="#6e4d22" opacity="0.12"/>
+</svg>

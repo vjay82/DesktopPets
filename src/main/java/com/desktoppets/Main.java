@@ -43,6 +43,11 @@ public final class Main {
         specialEvents.register(PetVisitor.event());
         specialEvents.register(UfoVisitor.event());
         specialEvents.register(AirplaneVisitor.event());
+        specialEvents.register(MouseVisitor.event());
+        specialEvents.register(RainCloudVisitor.event());
+        specialEvents.register(DroneVisitor.event());
+        specialEvents.register(CardboardBoxVisitor.event());
+        specialEvents.register(LaserPointerVisitor.event());
         // Residents were just reconciled above, so this starts the timer
         // immediately when config.txt lists any pets; with an empty config it
         // stays idle until the user adds a pet from the tray.
@@ -101,6 +106,21 @@ public final class Main {
         if (hasFlag(args, "--pet", "-pet", "pet", "--visitor")) {
             return "pet-visitor";
         }
+        if (hasFlag(args, "--mouse", "-mouse", "mouse")) {
+            return "mouse-visitor";
+        }
+        if (hasFlag(args, "--cloud", "-cloud", "cloud", "--rain", "rain")) {
+            return "rain-cloud";
+        }
+        if (hasFlag(args, "--drone", "-drone", "drone")) {
+            return "drone-delivery";
+        }
+        if (hasFlag(args, "--box", "-box", "box")) {
+            return "cardboard-box";
+        }
+        if (hasFlag(args, "--laser", "-laser", "laser")) {
+            return "laser-pointer";
+        }
         return null;
     }
 
@@ -117,6 +137,17 @@ public final class Main {
             case "pet":
             case "visitor":
                 return "pet-visitor";
+            case "mouse":
+                return "mouse-visitor";
+            case "cloud":
+            case "rain":
+                return "rain-cloud";
+            case "drone":
+                return "drone-delivery";
+            case "box":
+                return "cardboard-box";
+            case "laser":
+                return "laser-pointer";
             default:
                 return raw; // assume it's already a full id
         }

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Prop: animated RAIN, frame 1 of 4, for the "rain cloud" event. The cloud
+       sprite (cloud.svg) carries no drops; Pet.runRainCloudEventLoop shows this
+       sprite just below the cloud and cycles rain1..rain4 so the streaks fall.
+       Each frame shifts the whole field down ~7px (period 28) and wraps, so
+       1->2->3->4->1 reads as continuous rainfall. Square viewBox like the
+       other Sprites/Props/*.svg. -->
+  <g fill="none" stroke="#5aa9e6" stroke-width="3" stroke-linecap="round" opacity="0.85">
+    <line x1="16" y1="2"  x2="16" y2="13"/>
+    <line x1="16" y1="30" x2="16" y2="41"/>
+    <line x1="16" y1="58" x2="16" y2="69"/>
+    <line x1="16" y1="86" x2="16" y2="97"/>
+    <line x1="33" y1="16" x2="33" y2="27"/>
+    <line x1="33" y1="44" x2="33" y2="55"/>
+    <line x1="33" y1="72" x2="33" y2="83"/>
+    <line x1="50" y1="9"  x2="50" y2="20"/>
+    <line x1="50" y1="37" x2="50" y2="48"/>
+    <line x1="50" y1="65" x2="50" y2="76"/>
+    <line x1="50" y1="93" x2="50" y2="104"/>
+    <line x1="67" y1="-5" x2="67" y2="6"/>
+    <line x1="67" y1="23" x2="67" y2="34"/>
+    <line x1="67" y1="51" x2="67" y2="62"/>
+    <line x1="67" y1="79" x2="67" y2="90"/>
+    <line x1="84" y1="13" x2="84" y2="24"/>
+    <line x1="84" y1="41" x2="84" y2="52"/>
+    <line x1="84" y1="69" x2="84" y2="80"/>
+  </g>
+</svg>

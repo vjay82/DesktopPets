@@ -131,6 +131,24 @@ public final class Win32 {
                     FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS))
             : null;
 
+    /** {@code MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)} — the monitor a
+     *  window sits on, used to look up that monitor's work area. */
+    private static final MethodHandle MONITOR_FROM_WINDOW = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("MonitorFromWindow").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT))
+            : null;
+
+    /** {@code GetMonitorInfoA} — fills a {@code MONITORINFO} (full + work-area
+     *  rects) for an {@code HMONITOR}. */
+    private static final MethodHandle GET_MONITOR_INFO = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("GetMonitorInfoA").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS))
+            : null;
+
+    private static final int MONITOR_DEFAULTTONEAREST = 0x00000002;
+
     private static final MethodHandle ENUM_WINDOWS = WINDOWS
             ? LINKER.downcallHandle(
                     USER32.find("EnumWindows").orElseThrow(),
@@ -898,7 +916,22 @@ public final class Win32 {
     private static final class HoleCollector {
         long stageHwnd;
         int sLeft, sTop, sRight, sBottom; // stage rect, physical px
+        // Work area (monitor minus taskbar) of the stage's monitor, physical px.
+        // A window filling this is "effectively maximised" and must not be
+        // carved (it would erase every pet) even though IsZoomed is false and
+        // it stops short of the monitor's true bottom. Defaults to the full
+        // stage rect until resolved.
+        int wLeft, wTop, wRight, wBottom;
+        boolean workAreaKnown;
         final List<int[]> holes = new ArrayList<>(); // {l,t,r,b} in window coords
+        // Physical-px rects of "pets float on top" windows (maximised /
+        // full-monitor / work-area-filling) seen SO FAR during the single
+        // front-to-back EnumWindows pass — i.e. windows IN FRONT of whatever is
+        // being looked at now. A partial window fully inside one of these is
+        // invisible (hidden behind it), so it must NOT carve: doing so would cut
+        // the pets out in a region the user actually sees the front window, where
+        // the pets are supposed to float on top. See holeEnumProc.
+        final List<int[]> frontBlockers = new ArrayList<>(); // {l,t,r,b} physical px
 
         void reset(long hwnd, int l, int t, int r, int b) {
             this.stageHwnd = hwnd;
@@ -906,7 +939,57 @@ public final class Win32 {
             this.sTop = t;
             this.sRight = r;
             this.sBottom = b;
+            int[] wa = workAreaForWindow(hwnd);
+            if (wa != null) {
+                this.wLeft = wa[0];
+                this.wTop = wa[1];
+                this.wRight = wa[2];
+                this.wBottom = wa[3];
+                this.workAreaKnown = true;
+            } else {
+                this.wLeft = l;
+                this.wTop = t;
+                this.wRight = r;
+                this.wBottom = b;
+                this.workAreaKnown = false;
+            }
             this.holes.clear();
+            this.frontBlockers.clear();
+        }
+    }
+
+    /** Reusable per-thread 40-byte {@code MONITORINFO} for {@link #workAreaForWindow}. */
+    private static final ThreadLocal<MemorySegment> MONITORINFO_BUF = WINDOWS
+            ? ThreadLocal.withInitial(() -> ARENA.allocate(40))
+            : null;
+
+    /** Work-area rect ({@code {left,top,right,bottom}}, physical px) of the
+     *  monitor the given window is on, or null if it can't be resolved. The
+     *  work area excludes the taskbar — exactly the region the pets occupy. */
+    private static int[] workAreaForWindow(long hwnd) {
+        if (!WINDOWS || MONITOR_FROM_WINDOW == null || GET_MONITOR_INFO == null || hwnd == 0L) {
+            return null;
+        }
+        try {
+            MemorySegment hMon = (MemorySegment) MONITOR_FROM_WINDOW.invoke(
+                    MemorySegment.ofAddress(hwnd), MONITOR_DEFAULTTONEAREST);
+            if (hMon == null || hMon.address() == 0) {
+                return null;
+            }
+            MemorySegment mi = MONITORINFO_BUF.get();
+            mi.set(ValueLayout.JAVA_INT, 0L, 40); // cbSize
+            if ((int) GET_MONITOR_INFO.invoke(hMon, mi) == 0) {
+                return null;
+            }
+            // MONITORINFO: cbSize(0), rcMonitor(4..19), rcWork(20..35), dwFlags(36)
+            return new int[] {
+                    mi.get(ValueLayout.JAVA_INT, 20L),
+                    mi.get(ValueLayout.JAVA_INT, 24L),
+                    mi.get(ValueLayout.JAVA_INT, 28L),
+                    mi.get(ValueLayout.JAVA_INT, 32L),
+            };
+        } catch (Throwable t) {
+            return null;
         }
     }
 
@@ -980,11 +1063,37 @@ public final class Win32 {
             // z-order diagnostic (diag/ZOrderDiag.java): the stage is always
             // front-most, so Z-order can't tell these apart — the window's
             // SIZE / maximised state is the reliable discriminator.
-            if (isMaximized(hwnd) || coversWholeStage(pr, c)) {
+            //
+            // "Fills the monitor" means EITHER the full monitor rect OR the
+            // monitor's WORK AREA (monitor minus taskbar). The work-area case
+            // matters because some apps (e.g. Microsoft Edge / Chromium) sit at
+            // exactly (0,0)-(workW,workH) without being IsZoomed and without
+            // reaching the monitor's true bottom — so they were mis-classified
+            // as partial and carved out every pet standing on the taskbar
+            // ("all pets cut off"). They cover the entire pet floor, so treat
+            // them like a maximised window: don't carve, let pets float on top.
+            //
+            // Such a window is ALSO a "front blocker": EnumWindows runs
+            // front-to-back, so any partial window enumerated AFTER this one is
+            // behind it. Record its rect so a partial window fully hidden behind
+            // it is not carved (see below).
+            if (isMaximized(hwnd) || coversWholeStage(pr, c) || coversWorkArea(pr, c)) {
+                c.frontBlockers.add(new int[] { pr[0], pr[1], pr[2], pr[3] });
                 return 1;
             }
             if (isCloaked(hwnd)) {
                 return 1; // minimised UWP / other virtual desktop — not really visible
+            }
+            // This is a partial, free-floating window. But if it is fully hidden
+            // behind a "pets float on top" window IN FRONT of it (a maximised /
+            // work-area window recorded above), it is invisible — carving it
+            // would cut the pets out where the user sees that front window and
+            // the pets are supposed to float on top. The real bug this fixes:
+            // pets standing in front of maximised VS Code were sliced to "only
+            // feet" by an Outlook / time-tracker / terminal window sitting
+            // behind VS Code. Skip those.
+            if (isHiddenBehindFrontBlocker(pr, c)) {
+                return 1;
             }
             c.holes.add(new int[] { l - c.sLeft, t - c.sTop, r - c.sLeft, b - c.sTop });
         } catch (Throwable th) {
@@ -1008,6 +1117,53 @@ public final class Win32 {
         final int M = 2;
         return pr[0] <= c.sLeft + M && pr[1] <= c.sTop + M
                 && pr[2] >= c.sRight - M && pr[3] >= c.sBottom - M;
+    }
+
+    /** TRUE iff {@code pr} (physical px) covers essentially the entire WORK
+     *  AREA of the stage's monitor — the monitor minus the taskbar, i.e. the
+     *  region the pets actually stand in. A window doing this (e.g. a
+     *  work-area-filling but not-{@code IsZoomed} Edge/Chromium window) would
+     *  hide every pet, so it must not be carved even though it stops short of
+     *  the monitor's true bottom. Falls back to false when the work area could
+     *  not be resolved (then {@link #coversWholeStage} is the only guard).
+     *
+     *  <p>The left/top/right edges use the tight {@code M}=2px margin; the
+     *  BOTTOM edge is matched loosely (the window need only reach DOWN TO the
+     *  work-area bottom, i.e. the taskbar top — it may legitimately stop a few
+     *  px above the taskbar). Anchoring at top-left and spanning the full work
+     *  width is what distinguishes "maximised-like" from a large free-floating
+     *  window that leaves part of the screen uncovered. */
+    private static boolean coversWorkArea(int[] pr, HoleCollector c) {
+        if (!c.workAreaKnown) {
+            return false;
+        }
+        final int M = 2;
+        // Allow the window bottom to fall a little short of the work-area bottom
+        // (some maximised-equivalent windows stop ~taskbar-height above it).
+        int bottomSlack = Math.max(8, (c.wBottom - c.wTop) / 12);
+        return pr[0] <= c.wLeft + M && pr[1] <= c.wTop + M
+                && pr[2] >= c.wRight - M && pr[3] >= c.wBottom - bottomSlack;
+    }
+
+    /** TRUE iff {@code pr} (physical px) is essentially fully contained in one
+     *  of the "pets float on top" windows ({@link HoleCollector#frontBlockers})
+     *  enumerated IN FRONT of it — i.e. the window is hidden behind a maximised /
+     *  work-area window and is not actually visible. Carving such a window would
+     *  cut the pets out where the user sees the front window (and the pets are
+     *  meant to float on top there), so the occlusion pass skips it. A small
+     *  margin is allowed on every edge so frame-overhang / rounding doesn't
+     *  defeat the containment test. */
+    private static boolean isHiddenBehindFrontBlocker(int[] pr, HoleCollector c) {
+        final int M = 2;
+        List<int[]> blockers = c.frontBlockers;
+        for (int i = 0; i < blockers.size(); i++) {
+            int[] bl = blockers.get(i);
+            if (bl[0] <= pr[0] + M && bl[1] <= pr[1] + M
+                    && bl[2] >= pr[2] - M && bl[3] >= pr[3] - M) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isCloaked(MemorySegment hwnd) {

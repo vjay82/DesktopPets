@@ -484,12 +484,13 @@ public abstract class Pet implements Runnable {
             if (other == this || other.frame == null || !other.isVisitor()) {
                 continue;
             }
-            // The UFO-event alien and the airplane-event passenger both run
-            // their own self-contained cinematics and must not be chased: they
-            // ignore scare/knock-down (and the plane is airborne), so a hunting
-            // resident would just stand next to / under it pointlessly. Leave
-            // them be.
-            if (other.ufoEvent || other.airplaneEvent) {
+            // The cinematic-event visitors (UFO alien, airplane passenger,
+            // mouse, rain cloud, drone, cardboard-box kitten, laser-chaser)
+            // each run their own self-contained script and ignore
+            // scare/knock-down (and several are airborne), so a hunting
+            // resident would just stand next to / under them pointlessly.
+            // Leave them be.
+            if (other.isCinematicEvent()) {
                 continue;
             }
             Rectangle otherMon = other.currentMonitorBounds();
@@ -559,6 +560,35 @@ public abstract class Pet implements Runnable {
 
     private final AtomicReference<ReactionState> reactionRef =
             new AtomicReference<>(ReactionState.NONE);
+
+    /**
+     * Soft "abort the current activity" flag. Unlike a thread interrupt (which
+     * the {@link BehaviorEngine} loop guard treats as "terminate the pet"),
+     * this only asks the in-progress activity to bail out early: {@link
+     * #interrupted()} returns true while it is set, so the activity's
+     * per-step/per-frame {@code if (interrupted()) return;} guards unwind it,
+     * and control returns to the top of the engine loop where a pending
+     * {@link Reaction} (e.g. FLEE) is consumed on the very next tick. The
+     * engine clears it once per tick (before reaction handling) via
+     * {@link #clearActivityAbort()} so it never aborts the reaction it was
+     * meant to trigger. Used by the rain-cloud cinematic to make a rained-on
+     * pet drop what it is doing and flee immediately.
+     */
+    private final AtomicBoolean activityAbort = new AtomicBoolean(false);
+
+    /** Ask this pet to bail out of whatever activity it is currently running
+     *  (best-effort, observed at the next {@link #interrupted()} check). Safe
+     *  to call from another pet's thread. */
+    public final void requestActivityAbort() {
+        activityAbort.set(true);
+    }
+
+    /** Clear the {@link #activityAbort} flag. Called by the engine once per
+     *  tick before it consumes reactions / picks an activity, so the flag only
+     *  ever cancels the activity that was already in flight when it was set. */
+    public final void clearActivityAbort() {
+        activityAbort.set(false);
+    }
 
     /** Convenience accessor: current reaction kind. */
     public final Reaction reaction() {
@@ -784,6 +814,70 @@ public abstract class Pet implements Runnable {
      * {@link #runAirplaneEventLoop()}.
      */
     public volatile boolean airplaneEvent = false;
+
+    /**
+     * Set by {@link MouseVisitor} before the thread starts to run the rare
+     * "mouse scurry" cinematic ({@link #runMouseEventLoop()}): a little mouse
+     * skitters along the floor past a resident and off the far edge. The pet
+     * itself stays hidden — it only drives the prop. Mutually exclusive with
+     * the other event flags.
+     */
+    public volatile boolean mouseEvent = false;
+
+    /**
+     * Set by {@link RainCloudVisitor} before the thread starts to run the rare
+     * "rain cloud" cinematic ({@link #runRainCloudEventLoop()}): a grumpy
+     * little cloud drifts over a resident, sprinkling, then floats off. The
+     * pet itself stays hidden. Mutually exclusive with the other event flags.
+     */
+    public volatile boolean rainCloudEvent = false;
+
+    /**
+     * Set by {@link DroneVisitor} before the thread starts to run the rare
+     * "delivery drone" cinematic ({@link #runDroneEventLoop()}): a quadcopter
+     * flies in, lowers a wrapped gift to the floor near a resident, and buzzes
+     * off. The pet itself stays hidden. Mutually exclusive with the other
+     * event flags.
+     */
+    public volatile boolean droneEvent = false;
+
+    /**
+     * Set by {@link CardboardBoxVisitor} before the thread starts to run the
+     * rare "cardboard box" cinematic ({@link #runBoxEventLoop()}): a box drops
+     * near a resident and this visiting kitten pops its head out before ducking
+     * back in and being whisked away. The pet IS shown (behind the box prop).
+     * Mutually exclusive with the other event flags.
+     */
+    public volatile boolean boxEvent = false;
+
+    /**
+     * Set by {@link LaserPointerVisitor} before the thread starts to run the
+     * rare "laser pointer" cinematic ({@link #runLaserEventLoop()}): a darting
+     * red dot leads this visiting cat on a frantic chase before blinking out.
+     * The pet IS shown. Mutually exclusive with the other event flags.
+     */
+    public volatile boolean laserEvent = false;
+
+    /**
+     * Set by {@link LaserPointerVisitor} when a resident cat is already present
+     * on the target monitor: the laser carrier then stays HIDDEN and only
+     * drives the dot, letting that resident cat give chase (so no duplicate cat
+     * appears on screen). When false (no resident cat available), the carrier
+     * shows itself, does the chasing, and trots off-screen at the end. Only
+     * meaningful together with {@link #laserEvent}.
+     */
+    public volatile boolean laserResidentChaser = false;
+
+    /**
+     * True while this visitor is running one of the self-contained cinematic
+     * special events. Such visitors ignore scare/knock-down and drive their
+     * own scripts, so residents must not try to hunt or chase them (see
+     * {@link #nearestVisitor(int)}).
+     */
+    final boolean isCinematicEvent() {
+        return ufoEvent || airplaneEvent || mouseEvent || rainCloudEvent
+                || droneEvent || boxEvent || laserEvent;
+    }
 
     /** Set by {@link #scare(int)} from a hunting pet's thread; read by the
      *  visitor loop to break out of the idle hold and fly off early. */
@@ -1141,6 +1235,908 @@ public abstract class Pet implements Runnable {
         }
     }
 
+    // ===================================================================
+    // Additional cinematic special events (mouse scurry, rain cloud,
+    // delivery drone, cardboard box, laser pointer). Each is routed from
+    // run() by its own volatile flag (set by the matching *Visitor before the
+    // thread starts) and animates one or two always-on-top OverlayWindow props
+    // IN FRONT of ordinary windows, mirroring the UFO / airplane pattern.
+    // ===================================================================
+
+    /** Window-top Y at which a prop sprite of {@code size} px — whose feet sit
+     *  {@code footRatio} of the way down its square sprite box — rests on the
+     *  floor surface at screen column {@code centerX}. */
+    private int floorTopForProp(World world, int centerX, int size, double footRatio) {
+        int feetH = Math.max(1, (int) Math.round(effectiveHeight() * feetYRatio()));
+        int floorSurfaceY = floorYAt(world, centerX) + feetH;
+        return floorSurfaceY - (int) Math.round(size * footRatio);
+    }
+
+    /** A cinematic prop that can be moved around the screen — either an
+     *  always-on-top {@link OverlayWindow} (sky props: airplane, rain cloud,
+     *  delivery drone) or a stage-hosted {@link StageProp} (floor props: mouse
+     *  scurry, cardboard box, laser pointer). */
+    private interface MovableProp {
+        void setLocation(int x, int y);
+    }
+
+    /** Glide a {@link MovableProp} from {@code (x0,y0)} to {@code (x1,y1)}
+     *  over {@code steps} eased steps (smoothstep), sleeping {@code delay} ms
+     *  between each. Stops early on interrupt (app shutdown). */
+    private void glideOverlay(MovableProp w, int x0, int y0, int x1, int y1,
+            int steps, long delay) {
+        for (int i = 1; i <= steps && !interrupted(); i++) {
+            double e = ufoSmoothstep(i / (double) steps);
+            w.setLocation((int) Math.round(x0 + (x1 - x0) * e),
+                          (int) Math.round(y0 + (y1 - y0) * e));
+            sleepInterruptible(delay);
+        }
+        w.setLocation(x1, y1);
+    }
+
+    /**
+     * Position the pet's panel at screen {@code (x, topY)} but CLIP its bottom
+     * at screen {@code rimY}: only the portion of the sprite ABOVE the rim is
+     * drawn. The pet's {@link PetWindow} is a {@code JPanel} that clips its
+     * child label to its bounds, so shrinking the panel's height cuts the
+     * sprite off at the bottom. Used by {@link #runBoxEventLoop()} to make the
+     * kitten rise up out of the box's opening without its lower body showing
+     * through the box sprite's transparent flaps/gap. Restore normal rendering
+     * with a full-height {@link PetWindow#setBounds} once clipping is no longer
+     * needed.
+     */
+    private void setFrameClipped(int x, int topY, int rimY) {
+        if (frame == null) {
+            return;
+        }
+        int h = clampInt(rimY - topY, 0, petSize);
+        frame.setBounds(x, topY, petSize, h);
+        this.intendedX = x;
+        this.intendedY = topY;
+    }
+
+    private static int clampInt(int v, int lo, int hi) {
+        return Math.max(lo, Math.min(hi, v));
+    }
+
+    /**
+     * Special "mouse scurry" cinematic (see {@link #mouseEvent}). A little
+     * mouse skitters along the floor from one edge of the monitor to the other
+     * in quick, erratic darts (with the occasional freeze-and-sniff). The
+     * carrier pet stays hidden — it exists only to drive the prop (a
+     * {@link StageProp} sharing the stage canvas) through the normal visitor
+     * lifecycle.
+     *
+     * <p>Unlike a passive prop, this mouse publishes its live screen position
+     * as a {@link MouseQuarry} so resident ground pets (cats especially) can
+     * sense and <em>hunt</em> it: see {@link #canHuntMouse}/{@link #huntMouse}.
+     * When a predator closes in, the mouse {@link MouseQuarry#startled()
+     * panics} and bolts the other way, turning the stroll into a real chase. A
+     * pounce has a small chance to "catch" the mouse, ending the cinematic
+     * early; otherwise a hard ~32&nbsp;s deadline always sends it bolting for
+     * the nearest edge so the event terminates.
+     */
+    private void runMouseEventLoop() {
+        Log.info("pet:" + name, "mouse event begin");
+        World world = World.snapshot((int) screen.getWidth(), (int) screen.getHeight());
+        reassertTopmost();
+        pendingEntryTargetX = null;
+        pendingEntryTargetY = null;
+        setPetWindowVisible(false);
+
+        Rectangle mon = plannedSpawnMonitor != null ? plannedSpawnMonitor : currentMonitorBounds();
+        // Half the previous scale (was petSize*0.45) so the mouse reads as a
+        // tiny critter underfoot rather than rivalling the resident pets' size.
+        int mouseSize = Math.max(10, (int) Math.round(petSize * 0.225));
+        boolean fromLeft = ThreadLocalRandom.current().nextBoolean();
+        int dir = fromLeft ? 1 : -1;
+        int enterX = fromLeft ? (mon.x - mouseSize) : (mon.x + mon.width);
+        // Mouse feet sit ~0.83 of the way down its (low, long) sprite box.
+        final double FOOT = 0.83;
+        int slop = mouseSize + Dpi.scale(8);
+
+        int x = enterX;
+        int topAt = floorTopForProp(world, x + mouseSize / 2, mouseSize, FOOT);
+        int feetY0 = topAt + (int) Math.round(mouseSize * FOOT);
+        StageProp mouse = StageProp.create("mouse", mouseSize, mon, x, topAt, dir < 0);
+        MouseQuarry quarry = MouseQuarry.publish(mon, mouseSize, x + mouseSize / 2, feetY0);
+        long deadline = System.currentTimeMillis() + 32_000L;
+        boolean facingLeft = dir < 0;
+        try {
+            int slowStep = Math.max(2, Dpi.scale(3));
+            int fastStep = Math.max(3, Dpi.scale(5));
+            while (!interrupted() && !quarry.caught()) {
+                // Leave once fully off either edge of the monitor.
+                if (x < mon.x - slop || x > mon.x + mon.width + slop) {
+                    break;
+                }
+                boolean timeUp = System.currentTimeMillis() > deadline;
+                boolean panic = !timeUp && quarry.startled();
+                if (panic) {
+                    // Bolt away from the side the predator is on.
+                    dir = (x + mouseSize / 2) <= quarry.threatX() ? -1 : 1;
+                } else if (timeUp) {
+                    // Head for the nearer edge so the cinematic always ends.
+                    int mid = x + mouseSize / 2;
+                    dir = (mid - mon.x) < ((mon.x + mon.width) - mid) ? -1 : 1;
+                }
+                boolean wantLeft = dir < 0;
+                if (wantLeft != facingLeft) {
+                    facingLeft = wantLeft;
+                    mouse.setProp("mouse", mouseSize, facingLeft);
+                }
+                int stepPx = panic ? fastStep : slowStep;
+                long stepDelay = panic ? 8L : 14L;
+                int burst = panic ? (70 + ThreadLocalRandom.current().nextInt(120))
+                                  : (40 + ThreadLocalRandom.current().nextInt(90));
+                for (int moved = 0; moved < burst && !interrupted() && !quarry.caught(); moved += stepPx) {
+                    x += dir * stepPx;
+                    int jitter = ThreadLocalRandom.current().nextInt(3) - 1;
+                    int top = floorTopForProp(world, x + mouseSize / 2, mouseSize, FOOT);
+                    mouse.setLocation(x, top + jitter);
+                    quarry.update(x + mouseSize / 2, top + (int) Math.round(mouseSize * FOOT));
+                    sleepInterruptible(stepDelay);
+                    if (x < mon.x - slop || x > mon.x + mon.width + slop) {
+                        break;
+                    }
+                }
+                // Brief freeze (sniff) between darts when calm.
+                if (!panic && !timeUp && !interrupted()
+                        && ThreadLocalRandom.current().nextInt(100) < 50) {
+                    sleepInterruptible(120L + ThreadLocalRandom.current().nextInt(220));
+                }
+            }
+            // If a pet caught it, hold a beat before it disappears.
+            if (quarry.caught() && !interrupted()) {
+                sleepInterruptible(140L);
+            }
+        } finally {
+            quarry.clear();
+            mouse.dispose();
+            disposeWindow();
+            Log.info("pet:" + name, "mouse event end");
+        }
+    }
+
+    /**
+     * Special "rain cloud" cinematic (see {@link #rainCloudEvent}). A grumpy
+     * little cloud drifts in just above the pets' heads (not high up), hovers
+     * over a randomly-chosen resident, and then "rains" on it: a SEPARATE
+     * animated rain sprite (rain1..rain4, cycled below the cloud) appears while
+     * the targeted pet bolts to the side and runs away a bit (a
+     * {@link Reaction#FLEE} request). The cloud then stops raining and repeats
+     * on another random pet a random number of times (max 5) before drifting
+     * off the nearest edge. The carrier pet stays hidden; the cloud and the
+     * rain each ride their own always-on-top {@link OverlayWindow}.
+     */
+    private void runRainCloudEventLoop() {
+        Log.info("pet:" + name, "rain cloud event begin");
+        World world = World.snapshot((int) screen.getWidth(), (int) screen.getHeight());
+        reassertTopmost();
+        pendingEntryTargetX = null;
+        pendingEntryTargetY = null;
+        setPetWindowVisible(false);
+
+        Rectangle mon = plannedSpawnMonitor != null ? plannedSpawnMonitor : currentMonitorBounds();
+        int cloudSize = Math.max(40, (int) Math.round(petSize * 1.3));
+        int rainSize = Math.max(24, (int) Math.round(cloudSize * 0.9));
+
+        // Enter from the nearer side AT HEAD HEIGHT — spawn off the edge level
+        // with the first target's head rather than high up and then diving
+        // down. If no pet is eligible right now, fall back to a low band near
+        // the floor (still not "way up high").
+        boolean fromLeft = ThreadLocalRandom.current().nextBoolean();
+        int cloudX = fromLeft ? (mon.x - cloudSize) : (mon.x + mon.width);
+        Pet firstTarget = pickRainTarget(mon, null);
+        int cloudY = (firstTarget != null)
+                ? cloudHoverYFor(firstTarget, mon, cloudSize)
+                : mon.y + (int) Math.round(mon.height * 0.55);
+
+        OverlayWindow cloud = OverlayWindow.create("cloud", cloudSize, cloudX, cloudY, false);
+        OverlayWindow rain = null;
+        try {
+            // At least 2 attempts to drench a pet (max 5).
+            int rounds = 2 + ThreadLocalRandom.current().nextInt(4); // 2..5
+            Pet lastTarget = null;
+            boolean happyFace = false; // flips to the happy cloud sprite once a pet gets wet
+            for (int r = 0; r < rounds && !interrupted(); r++) {
+                // Reuse the pet we already sized our entry to for the first
+                // round so the cloud arrives level with it; re-pick afterwards.
+                Pet target = (r == 0 && firstTarget != null
+                        && firstTarget.frame != null && !firstTarget.isHidden())
+                        ? firstTarget
+                        : pickRainTarget(mon, lastTarget);
+                if (target == null) {
+                    break;
+                }
+                lastTarget = target;
+
+                // Approach the target while RE-READING its position every step,
+                // so a pet that's walking/running doesn't leave the cloud
+                // gliding toward a stale spot. We ease toward the pet's CURRENT
+                // head position and stop once we're hovering over it, with a
+                // travel cap so the cloud never chases a moving pet forever.
+                int maxApproach = 110; // ~110 * 18ms ≈ 2s travel cap
+                for (int a = 0; a < maxApproach && !interrupted(); a++) {
+                    if (target.frame == null || target.isHidden()) {
+                        break;
+                    }
+                    int tMid = target.logicalLocation().x + target.effectiveWidth() / 2;
+                    int destX = clampInt(tMid - cloudSize / 2,
+                            mon.x, mon.x + mon.width - cloudSize);
+                    int destY = cloudHoverYFor(target, mon, cloudSize);
+                    cloudX += (int) Math.round((destX - cloudX) * 0.18);
+                    cloudY += (int) Math.round((destY - cloudY) * 0.18);
+                    cloud.setLocation(cloudX, cloudY);
+                    // Arrived (hovering over the pet's head)?
+                    if (Math.abs((cloudX + cloudSize / 2) - tMid) <= Math.max(4, cloudSize / 12)
+                            && Math.abs(cloudY - destY) <= Math.max(3, cloudSize / 12)) {
+                        cloudX = destX;
+                        cloudY = destY;
+                        cloud.setLocation(cloudX, cloudY);
+                        break;
+                    }
+                    sleepInterruptible(18L);
+                }
+                if (interrupted()) {
+                    break;
+                }
+                if (target.frame == null || target.isHidden()) {
+                    continue; // pet vanished mid-approach — pick another
+                }
+                // Settle in place ("try to hover") with a small bob.
+                int bobAmp = Math.max(2, (int) Math.round(cloudSize * 0.05));
+                for (int b = 0; b < 8 && !interrupted(); b++) {
+                    cloud.setLocation(cloudX, cloudY
+                            + (int) Math.round(Math.sin(b / 8.0 * Math.PI * 2) * bobAmp));
+                    sleepInterruptible(45L);
+                }
+                cloud.setLocation(cloudX, cloudY);
+                if (interrupted()) {
+                    break;
+                }
+
+                // Start raining: show the animated rain just under the cloud.
+                int rainX = clampInt(cloudX + cloudSize / 2 - rainSize / 2,
+                        mon.x, mon.x + mon.width - rainSize);
+                int rainY = cloudY + (int) Math.round(cloudSize * 0.52);
+                if (rain == null) {
+                    rain = OverlayWindow.create("rain1", rainSize, rainX, rainY, false);
+                } else {
+                    rain.setProp("rain1", rainSize, false);
+                    rain.setLocation(rainX, rainY);
+                    rain.setVisible(true);
+                }
+
+                // Keep raining on this fixed spot until the pet has fled out
+                // from under the cloud (escaped its footprint) or is gone. The
+                // cloud does NOT follow — the pet has to leave the rain band.
+                // We (re-)issue the FLEE + activity-abort whenever the pet has
+                // no flee pending (it just finished/cleared one, the reaction
+                // expired, or it hasn't reacted yet), so a pet that's mid-sleep
+                // or didn't get clear is nudged again rather than rained on
+                // forever. A safety cap stops the downpour if it somehow can't
+                // escape. The abort makes it drop its current activity so the
+                // FLEE is consumed on its next tick instead of after whatever
+                // it was doing finishes.
+                int cloudSpanMid = cloudX + cloudSize / 2;
+                int escapeRadius = cloudSize / 2 + Math.max(8, target.effectiveWidth() / 2);
+                int rainLeft = rainX;
+                int rainRight = rainX + rainSize;
+                long rainDeadline = System.currentTimeMillis() + 6000L;
+                int f = 0;
+                int wetFrames = 0; // consecutive frames the rain truly lands on the pet
+                while (!interrupted()) {
+                    if (target.frame == null || target.isHidden()) {
+                        break;  // already gone
+                    }
+                    Point petNow = target.logicalLocation();
+                    int petWNow = target.effectiveWidth();
+                    int petMidNow = petNow.x + petWNow / 2;
+                    if (Math.abs(petMidNow - cloudSpanMid) > escapeRadius) {
+                        break;  // escaped its parameter
+                    }
+                    if (System.currentTimeMillis() > rainDeadline) {
+                        break;  // safety: don't rain forever if it can't flee
+                    }
+                    if (!target.hasActiveReaction()) {
+                        target.requestReaction(Reaction.FLEE, 2500L, cloudSpanMid);
+                        target.requestActivityAbort();
+                    }
+                    rain.setProp("rain" + (f % 4 + 1), rainSize, false);
+                    if (!happyFace) {
+                        // Only count it as a real "hit" when the rain column
+                        // actually overlaps a decent chunk of the pet's body —
+                        // a pet that bolts before the rain lands leaves the
+                        // cloud grumpy. Require a few consecutive wet frames so
+                        // a glancing edge-of-band moment doesn't count.
+                        int overlap = Math.min(rainRight, petNow.x + petWNow)
+                                - Math.max(rainLeft, petNow.x);
+                        int minOverlap = Math.max(6, Math.min(rainSize, petWNow) / 3);
+                        if (overlap >= minOverlap) {
+                            if (++wetFrames >= 3) {
+                                happyFace = true;
+                                cloud.setProp("cloud-happy", cloudSize, false);
+                            }
+                        } else {
+                            wetFrames = 0; // pet stepped out of the rain — reset
+                        }
+                    }
+                    cloud.setLocation(cloudX,
+                            cloudY + (int) Math.round(Math.sin(f / 3.0) * 2));
+                    sleepInterruptible(110L);
+                    f++;
+                }
+                cloud.setLocation(cloudX, cloudY);
+
+                // Stop raining, then move on to another random pet.
+                if (rain != null) {
+                    rain.setVisible(false);
+                }
+                if (interrupted()) {
+                    break;
+                }
+                sleepInterruptible(220L);
+            }
+            // Drift off the nearest horizontal edge.
+            if (!interrupted()) {
+                int cloudMid = cloudX + cloudSize / 2;
+                boolean exitLeft = (cloudMid - mon.x) <= (mon.x + mon.width - cloudMid);
+                int exitX = exitLeft ? (mon.x - cloudSize) : (mon.x + mon.width);
+                glideOverlay(cloud, cloudX, cloudY, exitX, cloudY, 56, 16L);
+            }
+        } finally {
+            if (rain != null) {
+                rain.dispose();
+            }
+            cloud.dispose();
+            disposeWindow();
+            Log.info("pet:" + name, "rain cloud event end");
+        }
+    }
+
+    /**
+     * Pick a random visible resident pet on {@code mon} for the rain cloud to
+     * drench, preferring one other than {@code avoid} when more than one is
+     * available (so consecutive rounds spread across the desktop rather than
+     * picking on the same pet every time). Excludes the hidden carrier itself,
+     * visitor/cinematic pets, hidden pets, and pets on other monitors. Returns
+     * {@code null} when no eligible resident exists.
+     */
+    private Pet pickRainTarget(Rectangle mon, Pet avoid) {
+        java.util.List<Pet> residents = new java.util.ArrayList<>();
+        for (Pet p : ACTIVE_PETS) {
+            if (p == this || p.frame == null) {
+                continue;
+            }
+            if (p.isVisitor() || p.isCinematicEvent() || p.isHidden()) {
+                continue;
+            }
+            Rectangle pm = p.currentMonitorBounds();
+            if (pm.x != mon.x || pm.y != mon.y) {
+                continue;
+            }
+            residents.add(p);
+        }
+        if (residents.isEmpty()) {
+            return null;
+        }
+        if (residents.size() > 1 && avoid != null) {
+            residents.remove(avoid);
+        }
+        return residents.get(ThreadLocalRandom.current().nextInt(residents.size()));
+    }
+
+    /**
+     * The screen Y at which the rain cloud should hover so it sits just above
+     * {@code target}'s head ("not that far up"): the cloud box bottom lands a
+     * hair below the pet's head-top, so the visible puffs float a little above
+     * the head and the rain falls onto it. Clamped to the monitor top.
+     */
+    private int cloudHoverYFor(Pet target, Rectangle mon, int cloudSize) {
+        int petTopY = target.logicalLocation().y;
+        return Math.max(mon.y + 2,
+                petTopY - cloudSize + (int) Math.round(cloudSize * 0.06));
+    }
+
+    /**
+     * Pick the visible resident pet nearest the gift column (mid-x {@code
+     * giftMidX}) on {@code mon} for the delivery-drone present to be collected
+     * by, so the dropped gift is actually picked up rather than silently
+     * vanishing. Same eligibility filter as {@link #pickRainTarget}: excludes
+     * the hidden carrier itself, visitor/cinematic pets, hidden pets, and pets
+     * on other monitors. Returns {@code null} when no eligible resident exists.
+     */
+    private Pet pickGiftCollector(Rectangle mon, int giftMidX) {
+        Pet best = null;
+        int bestDist = Integer.MAX_VALUE;
+        for (Pet p : ACTIVE_PETS) {
+            if (p == this || p.frame == null) {
+                continue;
+            }
+            if (p.isVisitor() || p.isCinematicEvent() || p.isHidden()) {
+                continue;
+            }
+            Rectangle pm = p.currentMonitorBounds();
+            if (pm.x != mon.x || pm.y != mon.y) {
+                continue;
+            }
+            int mid = p.logicalLocation().x + p.effectiveWidth() / 2;
+            int d = Math.abs(mid - giftMidX);
+            if (d < bestDist) {
+                bestDist = d;
+                best = p;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Special "delivery drone" cinematic (see {@link #droneEvent}). A little
+     * quadcopter flies in low over the resident pet, hovers, lowers a wrapped
+     * gift on its hook down to the floor, releases it, and buzzes off. The
+     * nearest resident pet then trots over, paws the present curiously, and it
+     * unwraps in a little pop and sparkle. The carrier pet stays hidden; the
+     * drone and the gift each ride their own always-on-top {@link OverlayWindow}.
+     */
+    private void runDroneEventLoop() {
+        Log.info("pet:" + name, "drone event begin");
+        World world = World.snapshot((int) screen.getWidth(), (int) screen.getHeight());
+        reassertTopmost();
+        pendingEntryTargetX = null;
+        pendingEntryTargetY = null;
+        setPetWindowVisible(false);
+
+        Rectangle mon = plannedSpawnMonitor != null ? plannedSpawnMonitor : currentMonitorBounds();
+        int dropX = plannedSpawnTargetX != null ? plannedSpawnTargetX : (mon.x + mon.width / 2);
+        int droneSize = Math.max(36, (int) Math.round(petSize * 0.95));
+        int giftSize = Math.max(20, (int) Math.round(petSize * 0.5));
+
+        boolean fromRight = plannedSpawnFromRight != null
+                ? plannedSpawnFromRight : ThreadLocalRandom.current().nextBoolean();
+        int dir = fromRight ? -1 : 1;
+        int enterX = fromRight ? (mon.x + mon.width) : (mon.x - droneSize);
+        int exitX = fromRight ? (mon.x - droneSize) : (mon.x + mon.width);
+        int hoverX = clampInt(dropX - droneSize / 2, mon.x, mon.x + mon.width - droneSize);
+        // Cruise LOW (was 0.12 — way up near the top) so the little quadcopter
+        // buzzes in around head height rather than from the ceiling.
+        int cruiseY = mon.y + (int) Math.round(mon.height * 0.30);
+
+        int giftX = clampInt(dropX - giftSize / 2, mon.x + 2, mon.x + mon.width - giftSize - 2);
+        int giftTopOnFloor = floorTopForProp(world, giftX + giftSize / 2, giftSize, 0.86);
+        // The gift rides slung under the drone's belly while it flies in and
+        // hovers, so the delivery reads as the drone CARRYING a package and
+        // then lowering it — rather than a present popping out of nowhere.
+        int bellyOffset = (int) Math.round(droneSize * 0.52);
+
+        OverlayWindow drone = OverlayWindow.create("drone", droneSize, enterX, cruiseY, dir < 0);
+        OverlayWindow gift = OverlayWindow.create("gift", giftSize,
+                clampInt(enterX + droneSize / 2 - giftSize / 2,
+                        mon.x - giftSize, mon.x + mon.width),
+                cruiseY + bellyOffset, false);
+        try {
+            // 1) Fly in to the drop column with the gift slung underneath.
+            int flySteps = 64;
+            for (int i = 1; i <= flySteps && !interrupted(); i++) {
+                double e = ufoSmoothstep(i / (double) flySteps);
+                int dx = (int) Math.round(enterX + (hoverX - enterX) * e);
+                drone.setLocation(dx, cruiseY);
+                gift.setLocation(clampInt(dx + droneSize / 2 - giftSize / 2,
+                        mon.x, mon.x + mon.width - giftSize), cruiseY + bellyOffset);
+                sleepInterruptible(16L);
+            }
+            int giftHoverX = clampInt(hoverX + droneSize / 2 - giftSize / 2,
+                    mon.x, mon.x + mon.width - giftSize);
+            drone.setLocation(hoverX, cruiseY);
+            gift.setLocation(giftHoverX, cruiseY + bellyOffset);
+            if (interrupted()) {
+                return;
+            }
+
+            // 2) Hover and steady in place WITH the package for a clear beat,
+            //    bobbing gently, so the drop is obviously not instantaneous.
+            int bobAmp = Math.max(2, (int) Math.round(droneSize * 0.06));
+            for (int b = 0; b < 22 && !interrupted(); b++) {
+                int dy = (int) Math.round(Math.sin(b / 22.0 * Math.PI * 2) * bobAmp);
+                drone.setLocation(hoverX, cruiseY + dy);
+                gift.setLocation(giftHoverX, cruiseY + bellyOffset + dy);
+                sleepInterruptible(45L);
+            }
+            drone.setLocation(hoverX, cruiseY);
+            gift.setLocation(giftHoverX, cruiseY + bellyOffset);
+            if (interrupted()) {
+                return;
+            }
+
+            // 3) Lower ONLY the gift down to the floor on the winch — slow and
+            //    clearly animated — while the drone holds its hover.
+            glideOverlay(gift, giftHoverX, cruiseY + bellyOffset, giftX, giftTopOnFloor, 44, 26L);
+            if (interrupted()) {
+                return;
+            }
+            sleepInterruptible(350L);
+
+            // 4) Release and buzz off, leaving the present on the floor.
+            glideOverlay(drone, hoverX, cruiseY, exitX, cruiseY, 64, 16L);
+            drone.setVisible(false);
+            if (interrupted()) {
+                return;
+            }
+            sleepInterruptible(250L);
+
+            // 5) A nearby pet notices the present, trots over, and OPENS it — so
+            //    the gift is actually received rather than left to vanish. The
+            //    closest resident gets a HUNT reaction toward the gift column (it
+            //    walks over and paws it); on arrival the present pops open in a
+            //    burst of sparkle while the pet flashes a happy heart.
+            int giftMid = giftX + giftSize / 2;
+            Pet collector = pickGiftCollector(mon, giftMid);
+            if (collector != null) {
+                collector.requestReaction(Reaction.HUNT, 9000L, giftMid);
+                collector.requestActivityAbort();
+                long arriveDeadline = System.currentTimeMillis() + 9000L;
+                boolean arrived = false;
+                while (!interrupted() && System.currentTimeMillis() < arriveDeadline) {
+                    if (collector.frame == null || collector.isHidden()) {
+                        break;
+                    }
+                    int cMid = collector.logicalLocation().x
+                            + collector.effectiveWidth() / 2;
+                    if (Math.abs(cMid - giftMid)
+                            <= Math.max(collector.effectiveWidth() * 2, giftSize * 2)) {
+                        arrived = true;
+                        break;
+                    }
+                    sleepInterruptible(80L);
+                }
+                if (arrived && !interrupted()) {
+                    // Let the pet's paw-tap land, then the present pops open: a
+                    // few clear bounces, then it bursts into a sparkle while the
+                    // collector flashes a happy heart — it got its gift.
+                    sleepInterruptible(300L);
+                    int pop = Math.max(4, giftSize / 4);
+                    for (int b = 0; b < 3 && !interrupted(); b++) {
+                        gift.setLocation(giftX, giftTopOnFloor - pop);
+                        sleepInterruptible(95L);
+                        gift.setLocation(giftX, giftTopOnFloor);
+                        sleepInterruptible(95L);
+                    }
+                    if (!interrupted()) {
+                        collector.setEmote("mini-heart");
+                        gift.setProp("sparkle", giftSize, false);
+                        sleepInterruptible(800L);
+                        collector.hideEmote();
+                    }
+                } else {
+                    // Couldn't reach it in time — let it rest a moment.
+                    sleepInterruptible(600L);
+                }
+            } else {
+                // No resident available to collect it — let it sit a beat.
+                sleepInterruptible(1200L);
+            }
+        } finally {
+            if (gift != null) {
+                gift.dispose();
+            }
+            drone.dispose();
+            disposeWindow();
+            Log.info("pet:" + name, "drone event end");
+        }
+    }
+
+    /**
+     * Special "cardboard box" cinematic (see {@link #boxEvent}). A box drops
+     * from the top of the monitor onto the floor near a resident, wobbles, then
+     * opens — and this visiting kitten springs up OUT of the box (rising while
+     * still BEHIND it so it reads as emerging from inside). Once it has cleared
+     * the top it is brought to the FRONT of the canvas; the now-empty box then
+     * drops straight down and falls off the bottom of the screen while the
+     * kitten lands on the floor where the box stood, does a little dance, and
+     * finally runs off the nearest edge of the monitor.
+     */
+    private void runBoxEventLoop() {
+        Log.info("pet:" + name, "box event begin");
+        World world = World.snapshot((int) screen.getWidth(), (int) screen.getHeight());
+        reassertTopmost();
+        pendingEntryTargetX = null;
+        pendingEntryTargetY = null;
+        setPetWindowVisible(false);
+
+        Rectangle mon = currentMonitorBounds();
+        int petW = effectiveWidth();
+        int landX = plannedSpawnTargetX != null ? plannedSpawnTargetX : logicalLocation().x;
+        landX = clampInt(landX, mon.x + 4, mon.x + mon.width - petW - 4);
+        int petFloorTopY = floorYAt(world, landX);
+        int feetH = Math.max(1, (int) Math.round(effectiveHeight() * feetYRatio()));
+        int floorSurfaceY = petFloorTopY + feetH;
+
+        int boxSize = Math.max(44, (int) Math.round(petSize * 1.35));
+        int boxCenterX = landX + petW / 2;
+        int boxX = clampInt(boxCenterX - boxSize / 2, mon.x, mon.x + mon.width - boxSize);
+        // Box body bottom sits ~0.90 down its sprite; anchor that to the floor.
+        int boxTopY = floorSurfaceY - (int) Math.round(boxSize * 0.90);
+        int boxStartY = mon.y - boxSize - 8;
+
+        int petX = boxCenterX - petW / 2;
+        // The box's opening rim, in screen pixels. While the kitten rises out
+        // of the box we CLIP its panel to this line (only the part ABOVE the
+        // rim is drawn) so the lower body is genuinely hidden — the box sprite
+        // has large transparent areas (splayed flaps, the centre gap), so
+        // relying on z-order alone lets the body show through while it rises.
+        int rimY = boxTopY + (int) Math.round(boxSize * 0.50);
+        // Start fully tucked inside (clipped to nothing), just below the rim.
+        int startTopY = rimY + (int) Math.round(boxSize * 0.10);
+        // Apex of the pop-out: the WHOLE kitten is above the rim here (clip
+        // reveals the full sprite), so dropping the clip + the behind→front
+        // swap have nothing left to hide.
+        int peakTopY = rimY - petSize - (int) Math.round(petSize * 0.05);
+
+        setFrameClipped(petX, startTopY, rimY);
+        applySprite(idleFrames().get(0));
+
+        StageProp box = StageProp.create("box", boxSize, mon, boxX, boxStartY, false);
+        try {
+            // 1) Box descends, closed.
+            glideOverlay(box, boxX, boxStartY, boxX, boxTopY, 30, 18L);
+            if (interrupted()) {
+                return;
+            }
+            // 2) Wobble on landing.
+            for (int i = 0; i < 3 && !interrupted(); i++) {
+                box.setLocation(boxX - 3, boxTopY);
+                sleepInterruptible(70L);
+                box.setLocation(boxX + 3, boxTopY);
+                sleepInterruptible(70L);
+            }
+            box.setLocation(boxX, boxTopY);
+            sleepInterruptible(180L);
+            // 3) Open the box.
+            box.setProp("box-open", boxSize, false);
+            sleepInterruptible(220L);
+            // 4) Kitten rises UP out of the box's opening. Its panel is CLIPPED
+            //    at the rim, so only the part that has emerged above the opening
+            //    is ever drawn (no body showing through the box's transparent
+            //    flaps/gap). By the apex the whole sprite is above the rim, so
+            //    we drop the clip, restore the full panel and bring it to the
+            //    FRONT for the landing.
+            setPetWindowVisible(true);
+            int riseSteps = 20;
+            for (int i = 1; i <= riseSteps && !interrupted(); i++) {
+                double t = i / (double) riseSteps;
+                int topY = (int) Math.round(startTopY + (peakTopY - startTopY) * t);
+                setFrameClipped(petX, topY, rimY);
+                sleepInterruptible(16L);
+            }
+            if (interrupted()) {
+                return;
+            }
+            if (frame != null) {
+                frame.setBounds(petX, peakTopY, petSize, petSize);
+                frame.toFront();
+            }
+            this.intendedX = petX;
+            this.intendedY = peakTopY;
+            sleepInterruptible(120L);
+            // 5) The empty box drops straight down and falls off the bottom of
+            //    the screen while the kitten falls and lands on the floor where
+            //    the box stood. Run both with gravity in one interleaved loop so
+            //    they fall together; the kitten (now front-most) lands on the
+            //    surface and the box continues out of view behind it.
+            int boxFallEndY = mon.y + mon.height + boxSize + 8;
+            double by = boxTopY;
+            double bvy = 0.0;
+            double py = peakTopY;
+            double pvy = 0.0;
+            double grav = Math.max(1.4, 1.6 * Dpi.FACTOR);
+            boolean boxDone = false;
+            boolean petDone = false;
+            while ((!boxDone || !petDone) && !interrupted()) {
+                if (!boxDone) {
+                    bvy += grav;
+                    by += bvy;
+                    if (by >= boxFallEndY) {
+                        by = boxFallEndY;
+                        boxDone = true;
+                    }
+                    box.setLocation(boxX, (int) Math.round(by));
+                }
+                if (!petDone) {
+                    pvy += grav;
+                    py += pvy;
+                    if (py >= petFloorTopY) {
+                        py = petFloorTopY;
+                        petDone = true;
+                    }
+                    moveFrameTo(petX, (int) Math.round(py));
+                }
+                sleepInterruptible(16L);
+            }
+            moveFrameTo(petX, petFloorTopY);
+            // 6) Land, settle, then do a little dance. (The box is now below the
+            //    screen and clipped from view; it is disposed in the finally.)
+            applySprite(idleFrames().get(0));
+            sleepInterruptible(220L);
+            if (!interrupted()) {
+                dance();
+            }
+            // 7) Run off the nearest edge of the monitor.
+            if (!interrupted()) {
+                int petMid = petX + petW / 2;
+                boolean exitLeft = (petMid - mon.x) <= (mon.x + mon.width - petMid);
+                int exitX = exitLeft ? (mon.x - petW - 24) : (mon.x + mon.width + 24);
+                runAlongFloor(world, exitX);
+            }
+        } finally {
+            box.dispose();
+            disposeWindow();
+            Log.info("pet:" + name, "box event end");
+        }
+    }
+
+    /**
+     * Special "laser pointer" cinematic (see {@link #laserEvent}). A darting
+     * red dot appears on the floor near this visiting cat, which frantically
+     * chases it from spot to spot as it flicks away, until the dot finally
+     * blinks out and the cat is left looking around, puzzled. The dot rides its
+     * own always-on-top {@link OverlayWindow} so it stays IN FRONT of the cat;
+     * the cat IS shown and really runs after it.
+     */
+    private void runLaserEventLoop() {
+        Log.info("pet:" + name, "laser event begin");
+        World world = World.snapshot((int) screen.getWidth(), (int) screen.getHeight());
+        reassertTopmost();
+        pendingEntryTargetX = null;
+        pendingEntryTargetY = null;
+
+        Rectangle mon = currentMonitorBounds();
+        int petW = effectiveWidth();
+        int landX = plannedSpawnTargetX != null ? plannedSpawnTargetX : logicalLocation().x;
+        landX = clampInt(landX, mon.x + 4, mon.x + mon.width - petW - 4);
+        int petFloorTopY = floorYAt(world, landX);
+
+        // Two modes (chosen by LaserPointerVisitor): if a resident cat is
+        // already on this monitor it gives chase, so this carrier stays HIDDEN
+        // and only drives the dot (publishing a LaserQuarry the resident reads).
+        // Only when NO resident cat is available do we show this visiting cat to
+        // do the chasing itself — and then it trots off-screen when the dot is
+        // gone rather than vanishing on the spot.
+        boolean selfChase = !laserResidentChaser;
+        setPetWindowVisible(selfChase);
+        if (selfChase) {
+            moveFrameTo(landX, petFloorTopY);
+            idle();
+        }
+
+        int dotSize = Math.max(18, (int) Math.round(petSize * 0.42));
+        int dotMin = mon.x + 6;
+        int dotMax = mon.x + mon.width - dotSize - 6;
+        int dotX = clampInt(landX + petW + 20, dotMin, dotMax);
+        // Dot centre rides just above the floor surface (footRatio 0.5).
+        int dotY = floorTopForProp(world, dotX + dotSize / 2, dotSize, 0.5);
+
+        // The dot rides an always-on-top OverlayWindow (NOT a StageProp on the
+        // shared pet layer): it is a projected light point, so it must stay on
+        // top of EVERYTHING — including the cat chasing it. A StageProp shares
+        // the pets' z-layer, which let a pet render on top of the dot (a pet
+        // "standing on" the laser). OverlayWindow is always-on-top + click-
+        // through like the sky props, so the dot is never occluded.
+        OverlayWindow dot = OverlayWindow.create("laser-dot", dotSize, dotX, dotY, false);
+        // Publish the dot as a live quarry so a resident cat (if any) can chase
+        // it from its own BehaviorEngine (see canChaseLaser / chaseLaser).
+        LaserQuarry quarry = LaserQuarry.publish(mon, dotSize,
+                dotX + dotSize / 2, dotY + dotSize / 2);
+        try {
+            int darts = 7 + ThreadLocalRandom.current().nextInt(7); // 7..13
+            for (int d = 0; d < darts && !interrupted(); d++) {
+                final ThreadLocalRandom rnd = ThreadLocalRandom.current();
+                // Pick a move "style" so the dot is unpredictable: mostly small
+                // twitchy jitters, sometimes a medium hop, and every so often a
+                // big dash most of the way across the screen — the cat never
+                // knows whether it'll barely flick or bolt far away.
+                double roll = rnd.nextDouble();
+                int span;
+                if (roll < 0.22) {
+                    // Big dash: 30%..65% of the monitor width.
+                    span = (int) Math.round(mon.width * (0.30 + rnd.nextDouble() * 0.35));
+                } else if (roll < 0.55) {
+                    // Medium hop.
+                    span = (int) Math.round(petSize * (2.0 + rnd.nextDouble() * 2.5));
+                } else {
+                    // Small twitch.
+                    span = (int) Math.round(petSize * (0.4 + rnd.nextDouble() * 1.2));
+                }
+                int sign = rnd.nextBoolean() ? 1 : -1;
+                int nextX = clampInt(dotX + sign * span, dotMin, dotMax);
+                // If we barely moved (clamped against an edge), bounce the
+                // other way so a big dash near a wall still goes somewhere.
+                if (Math.abs(nextX - dotX) < petSize / 2) {
+                    nextX = clampInt(dotX - sign * span, dotMin, dotMax);
+                }
+                int nextY = floorTopForProp(world, nextX + dotSize / 2, dotSize, 0.5);
+                // Vary the flick SPEED: more steps for longer hops, but always a
+                // quick zip, with a jittered per-step delay.
+                int dist = Math.abs(nextX - dotX);
+                int steps = clampInt(dist / Math.max(8, dotSize), 6, 20);
+                long stepDelay = 5L + rnd.nextInt(8); // 5..12 ms
+                glideOverlay(dot, dotX, dotY, nextX, nextY, steps, stepDelay);
+                dotX = nextX;
+                dotY = nextY;
+                quarry.update(dotX + dotSize / 2, dotY + dotSize / 2);
+                // Sometimes flick AGAIN right away (a quick double-feint) before
+                // the cat catches up, so it isn't a predictable one-move-a-beat.
+                if (rnd.nextInt(100) < 30) {
+                    int span2 = (int) Math.round(petSize * (1.0 + rnd.nextDouble() * 2.2));
+                    int sign2 = rnd.nextBoolean() ? 1 : -1;
+                    int n2 = clampInt(dotX + sign2 * span2, dotMin, dotMax);
+                    int n2y = floorTopForProp(world, n2 + dotSize / 2, dotSize, 0.5);
+                    glideOverlay(dot, dotX, dotY, n2, n2y,
+                            clampInt(Math.abs(n2 - dotX) / Math.max(8, dotSize), 6, 16), 6L);
+                    dotX = n2;
+                    dotY = n2y;
+                    quarry.update(dotX + dotSize / 2, dotY + dotSize / 2);
+                }
+                // When THIS cat is the chaser (no resident cat around) it
+                // pounces after the dot itself. Otherwise a resident cat does
+                // the chasing via the quarry and this hidden carrier just paces
+                // the dot's flicks with the pauses below.
+                if (selfChase) {
+                    int chaseX = clampInt(dotX + dotSize / 2 - petW / 2,
+                            mon.x + 4, mon.x + mon.width - petW - 4);
+                    walkAlongFloor(world, chaseX);
+                    // Occasional crouch/pounce of a random length.
+                    if (!interrupted() && rnd.nextInt(100) < 45) {
+                        applySprite(doodleKind() + "/sit");
+                        sleepInterruptible(110L + rnd.nextInt(190));
+                    }
+                    if (!interrupted()) {
+                        idle();
+                    }
+                }
+                if (interrupted()) {
+                    break;
+                }
+                // Random pause between darts — from a near-instant twitch to a
+                // tantalising freeze where the dot sits still and the cat creeps
+                // up, so the rhythm is irregular.
+                double pauseRoll = rnd.nextDouble();
+                long pause;
+                if (pauseRoll < 0.20) {
+                    pause = 40L + rnd.nextInt(120);     // near-instant
+                } else if (pauseRoll < 0.80) {
+                    pause = 200L + rnd.nextInt(360);    // normal
+                } else {
+                    pause = 700L + rnd.nextInt(900);    // long teasing freeze
+                }
+                sleepInterruptible(pause);
+            }
+            // The dot blinks out.
+            for (int i = 0; i < 3 && !interrupted(); i++) {
+                dot.setVisible(false);
+                sleepInterruptible(120L);
+                dot.setVisible(true);
+                sleepInterruptible(120L);
+            }
+            // A visiting chaser cat looks around, puzzled, then trots off the
+            // nearest edge so it doesn't just pop out of existence. (When a
+            // resident cat did the chasing this carrier is hidden — nothing to
+            // show or walk off; the resident's own stalking emote is cleared by
+            // its BehaviorEngine once the quarry clears.)
+            if (selfChase && !interrupted()) {
+                showEmote("question", 600L);
+                int petMid = logicalLocation().x + petW / 2;
+                boolean exitLeft = (petMid - mon.x) <= (mon.x + mon.width - petMid);
+                int exitX = exitLeft ? (mon.x - petW - 24) : (mon.x + mon.width + 24);
+                runAlongFloor(world, exitX);
+            }
+        } finally {
+            quarry.clear();
+            dot.dispose();
+            disposeWindow();
+            Log.info("pet:" + name, "laser event end");
+        }
+    }
+
     /**
      * A dedicated borderless, always-on-top, click-through {@link JFrame} that
      * carries the airplane sprite (duck passenger included) across the screen
@@ -1242,6 +2238,329 @@ public abstract class Pet implements Runnable {
         g.drawImage(src.getImage(), 0, 0, w, h, w, 0, 0, h, null);
         g.dispose();
         return new ImageIcon(out);
+    }
+
+    /**
+     * A dedicated borderless, always-on-top, click-through {@link JFrame} that
+     * carries a single prop sprite in the topmost band — IN FRONT of ordinary
+     * windows and the shared {@link Stage} — for the cinematic special events
+     * (mouse scurry, rain cloud, delivery drone, cardboard box, laser pointer).
+     * Generalises {@link AirplaneWindow}: the prop and its mirroring can be
+     * swapped at runtime ({@link #setProp}) so one window can, e.g., open a box
+     * mid-cinematic, and the window can be blinked on and off
+     * ({@link #setVisible}).
+     */
+    private static final class OverlayWindow implements MovableProp {
+        private final JFrame frame;
+        private final JLabel label;
+
+        private OverlayWindow(JFrame frame, JLabel label) {
+            this.frame = frame;
+            this.label = label;
+        }
+
+        /** Build + show the overlay off-screen at {@code (x, y)} carrying
+         *  {@code prop/<propKey>} at {@code size} px (mirrored horizontally
+         *  when {@code mirror}). All AWT/Win32 setup runs synchronously on the
+         *  EDT so the native HWND exists before it is made click-through. */
+        static OverlayWindow create(String propKey, int size, int x, int y, boolean mirror) {
+            final JFrame[] outF = new JFrame[1];
+            final JLabel[] outL = new JLabel[1];
+            Runnable build = () -> {
+                JFrame f = new JFrame();
+                f.setUndecorated(true);
+                f.setBackground(new Color(0, 0, 0, 0));
+                f.setAlwaysOnTop(true);
+                f.setType(JFrame.Type.UTILITY);      // no taskbar entry
+                f.setFocusableWindowState(false);    // never steal focus
+                f.setAutoRequestFocus(false);
+                f.setLayout(null);
+                JLabel lb = new JLabel();
+                lb.setBounds(0, 0, size, size);
+                ImageIcon icon = Doodle.icon("prop/" + propKey, size);
+                if (mirror && icon != null) {
+                    icon = mirroredHoriz(icon);
+                }
+                lb.setIcon(icon);
+                f.add(lb);
+                f.setSize(size, size);
+                f.setLocation(x, y);
+                String title = "DesktopPets-Overlay-" + Long.toHexString(System.nanoTime());
+                f.setTitle(title);
+                f.setVisible(true);
+                long hwnd = Win32.findWindowByTitle(title);
+                Win32.registerOwnWindow(hwnd);
+                Win32.makeClickThrough(hwnd);
+                outF[0] = f;
+                outL[0] = lb;
+            };
+            try {
+                if (SwingUtilities.isEventDispatchThread()) {
+                    build.run();
+                } else {
+                    SwingUtilities.invokeAndWait(build);
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                Log.warn("overlay", "window create failed: " + e);
+            }
+            return new OverlayWindow(outF[0], outL[0]);
+        }
+
+        /** Swap the prop sprite (same window) — e.g. open/close the box. */
+        void setProp(String propKey, int size, boolean mirror) {
+            JLabel lb = label;
+            if (lb == null) {
+                return;
+            }
+            ImageIcon base = Doodle.icon("prop/" + propKey, size);
+            final ImageIcon icon = (mirror && base != null) ? mirroredHoriz(base) : base;
+            SwingUtilities.invokeLater(() -> {
+                lb.setBounds(0, 0, size, size);
+                lb.setIcon(icon);
+            });
+        }
+
+        /** Move the prop to {@code (x, y)} in virtual-desktop screen pixels. */
+        @Override
+        public void setLocation(int x, int y) {
+            JFrame f = frame;
+            if (f != null) {
+                SwingUtilities.invokeLater(() -> f.setLocation(x, y));
+            }
+        }
+
+        /** Show/hide the prop (used to blink the laser dot out). */
+        void setVisible(boolean v) {
+            JFrame f = frame;
+            if (f != null) {
+                SwingUtilities.invokeLater(() -> f.setVisible(v));
+            }
+        }
+
+        /** Hide + dispose the window. Safe if creation failed. */
+        void dispose() {
+            JFrame f = frame;
+            if (f != null) {
+                SwingUtilities.invokeLater(() -> {
+                    f.setVisible(false);
+                    f.dispose();
+                });
+            }
+        }
+    }
+
+    /**
+     * A single cinematic prop rendered on the shared {@link Stage} (rather than
+     * an always-on-top {@link OverlayWindow}), so it shares the resident pets'
+     * layer: the stage canvas carves it out with the very same window-occlusion
+     * holes, so the prop hides BEHIND the user's ordinary windows exactly like
+     * the pets do. Used for the FLOOR-level cinematics (mouse scurry, cardboard
+     * box, laser pointer): a floor prop floating in FRONT of the user's windows
+     * while the pets it shares the floor with hide BEHIND them reads as broken
+     * (only the pets' feet poke out under the window). Sky cinematics (airplane,
+     * rain cloud, delivery drone) keep using {@link OverlayWindow} so they fly
+     * IN FRONT of windows, where there is normally nothing to clash with.
+     *
+     * <p>The prop is brought to the FRONT of its stage canvas on creation (and
+     * whenever its sprite is swapped) so it paints over the pets — e.g. the box
+     * in front of the kitten sitting inside it.
+     */
+    private static final class StageProp implements MovableProp {
+        private final PetWindow win;
+        private final JLabel label;
+
+        private StageProp(PetWindow win, JLabel label) {
+            this.win = win;
+            this.label = label;
+        }
+
+        /** Build + show the prop on {@code mon}'s stage at screen {@code (x,y)}
+         *  carrying {@code prop/<propKey>} at {@code size} px (mirrored
+         *  horizontally when {@code mirror}), brought to the front so it paints
+         *  over the pets. */
+        static StageProp create(String propKey, int size, Rectangle mon,
+                int x, int y, boolean mirror) {
+            PetWindow w = new PetWindow();
+            JLabel lb = new JLabel();
+            w.add(lb);
+            final int fSize = size;
+            onEdt(() -> {
+                lb.setBounds(0, 0, fSize, fSize);
+                ImageIcon base = Doodle.icon("prop/" + propKey, fSize);
+                lb.setIcon((mirror && base != null) ? mirroredHoriz(base) : base);
+            });
+            w.showOnMonitor(mon, x, y, size, size);
+            w.toFront();
+            return new StageProp(w, lb);
+        }
+
+        /** Swap the prop sprite (same panel) — e.g. open/close the box — and
+         *  re-assert front-most z-order over the pets. */
+        void setProp(String propKey, int size, boolean mirror) {
+            JLabel lb = label;
+            if (lb == null) {
+                return;
+            }
+            ImageIcon base = Doodle.icon("prop/" + propKey, size);
+            final ImageIcon icon = (mirror && base != null) ? mirroredHoriz(base) : base;
+            final int fSize = size;
+            onEdt(() -> {
+                lb.setBounds(0, 0, fSize, fSize);
+                lb.setIcon(icon);
+            });
+            win.toFront();
+        }
+
+        /** Move the prop to {@code (x, y)} in virtual-desktop screen pixels. */
+        @Override
+        public void setLocation(int x, int y) {
+            win.setLocation(x, y);
+        }
+
+        /** Show/hide the prop (used to blink the laser dot out). */
+        void setVisible(boolean v) {
+            win.setVisible(v);
+        }
+
+        /** Remove the prop from the stage. Safe if creation failed. */
+        void dispose() {
+            win.dispose();
+        }
+    }
+
+    /**
+     * Shared, monitor-scoped state for the live "mouse scurry" prop so that
+     * resident pets can sense and hunt it (analogous to {@link Ball#active()}).
+     * The hidden carrier in {@link #runMouseEventLoop()} {@link #publish
+     * publishes} the prop's current screen position every step and
+     * {@link #clear() clears} it when the cinematic ends; resident pets'
+     * behaviour loops read {@link #active()} and run {@link #huntMouse}.
+     *
+     * <p>The mouse is hunted from anywhere on its monitor, but only
+     * {@link #startle startles} (and bolts) once a predator is close, so a
+     * distant cat strolls over while a near one triggers a frantic dash.
+     */
+    public static final class MouseQuarry {
+        private static final java.util.concurrent.atomic.AtomicReference<MouseQuarry> ACTIVE =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        /** A resident on the mouse's monitor will give chase from anywhere on
+         *  that monitor, so the interest gate is effectively the monitor width;
+         *  this is just a generous upper bound used by {@link #canHuntMouse}. */
+        static final int INTEREST_RADIUS = 100_000;
+
+        private final Rectangle monitor;
+        private final int sizePx;
+        private volatile int centerX;
+        private volatile int feetY;
+        private volatile long startledUntilMs;
+        private volatile int threatX;
+        private volatile boolean caught;
+
+        private MouseQuarry(Rectangle monitor, int sizePx, int centerX, int feetY) {
+            this.monitor = monitor;
+            this.sizePx = sizePx;
+            this.centerX = centerX;
+            this.feetY = feetY;
+        }
+
+        /** Publish a fresh quarry as the active one, replacing any previous. */
+        static MouseQuarry publish(Rectangle monitor, int sizePx, int centerX, int feetY) {
+            MouseQuarry q = new MouseQuarry(monitor, sizePx, centerX, feetY);
+            ACTIVE.set(q);
+            return q;
+        }
+
+        /** The mouse currently in play, or {@code null} if none / it was caught
+         *  or has already left. */
+        public static MouseQuarry active() {
+            MouseQuarry q = ACTIVE.get();
+            return (q != null && !q.caught) ? q : null;
+        }
+
+        /** Update the live floor position (called every step by the carrier). */
+        void update(int centerX, int feetY) {
+            this.centerX = centerX;
+            this.feetY = feetY;
+        }
+
+        /** A hunter at {@code fromX} (screen px) is closing in / pouncing, so
+         *  the mouse should bolt away from that side for a short while. */
+        void startle(int fromX) {
+            this.threatX = fromX;
+            this.startledUntilMs = System.currentTimeMillis() + 850L;
+        }
+
+        boolean startled()  { return System.currentTimeMillis() < startledUntilMs; }
+        int threatX()       { return threatX; }
+        int centerX()       { return centerX; }
+        int feetY()         { return feetY; }
+        int sizePx()        { return sizePx; }
+        Rectangle monitor() { return monitor; }
+        boolean caught()    { return caught; }
+
+        /** Mark the mouse as caught — {@link #active()} then reports none and
+         *  the carrier loop ends the cinematic. */
+        void markCaught()   { this.caught = true; }
+
+        /** Clear this quarry if it is still the active one. */
+        void clear()        { ACTIVE.compareAndSet(this, null); }
+    }
+
+    /**
+     * Shared, monitor-scoped state for the live "laser pointer" dot so that a
+     * resident cat can sense and chase it (analogous to {@link MouseQuarry}).
+     * The carrier in {@link #runLaserEventLoop()} publishes the dot's current
+     * floor column on every flick and {@link #clear() clears} it when the
+     * cinematic ends; a resident cat's behaviour loop reads {@link #active()}
+     * and runs {@link #chaseLaser}.
+     *
+     * <p>Unlike the mouse, the dot is never "caught" — it always blinks out on
+     * its own — so there is no catch/startle state, just a live position.
+     */
+    public static final class LaserQuarry {
+        private static final java.util.concurrent.atomic.AtomicReference<LaserQuarry> ACTIVE =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        private final Rectangle monitor;
+        private final int sizePx;
+        private volatile int centerX;
+        private volatile int feetY;
+
+        private LaserQuarry(Rectangle monitor, int sizePx, int centerX, int feetY) {
+            this.monitor = monitor;
+            this.sizePx = sizePx;
+            this.centerX = centerX;
+            this.feetY = feetY;
+        }
+
+        /** Publish a fresh dot quarry as the active one, replacing any previous. */
+        static LaserQuarry publish(Rectangle monitor, int sizePx, int centerX, int feetY) {
+            LaserQuarry q = new LaserQuarry(monitor, sizePx, centerX, feetY);
+            ACTIVE.set(q);
+            return q;
+        }
+
+        /** The dot currently in play, or {@code null} if none / it has ended. */
+        public static LaserQuarry active() {
+            return ACTIVE.get();
+        }
+
+        /** Update the live floor position (called on every flick by the carrier). */
+        void update(int centerX, int feetY) {
+            this.centerX = centerX;
+            this.feetY = feetY;
+        }
+
+        int centerX()       { return centerX; }
+        int feetY()         { return feetY; }
+        int sizePx()        { return sizePx; }
+        Rectangle monitor() { return monitor; }
+
+        /** Clear this quarry if it is still the active one. */
+        void clear()        { ACTIVE.compareAndSet(this, null); }
     }
 
     /**
@@ -1609,6 +2928,16 @@ public abstract class Pet implements Runnable {
                     runUfoEventLoop();
                 } else if (airplaneEvent) {
                     runAirplaneEventLoop();
+                } else if (mouseEvent) {
+                    runMouseEventLoop();
+                } else if (rainCloudEvent) {
+                    runRainCloudEventLoop();
+                } else if (droneEvent) {
+                    runDroneEventLoop();
+                } else if (boxEvent) {
+                    runBoxEventLoop();
+                } else if (laserEvent) {
+                    runLaserEventLoop();
                 } else {
                     runVisitorLoop();
                 }
@@ -3265,6 +4594,159 @@ public abstract class Pet implements Runnable {
     }
 
     /**
+     * True if this pet is eligible to hunt the live mouse-scurry prop (see
+     * {@link MouseQuarry}) on its next tick: a resident (not the hidden
+     * carrier / a visitor), a ground species (flying {@link Bird}s are
+     * excluded — swooping on a floor mouse would need its own animation),
+     * on the mouse's monitor, not hovered/clicked, and with no urgent need
+     * (self-care wins over play). Cats are the natural mouser but every
+     * eligible ground resident gives chase, so the mouse always "gets
+     * hunted" when one is present.
+     */
+    public final boolean canHuntMouse(MouseQuarry q) {
+        if (q == null || q.caught()) return false;
+        if (isVisitor()) return false;
+        if (this instanceof Bird) return false;
+        if (hovered || clicked.get()) return false;
+        if (needs.lowestBelow(15.0) != null) return false;
+        Rectangle myMon = currentMonitorBounds();
+        Rectangle qm = q.monitor();
+        if (myMon.x != qm.x || myMon.y != qm.y) return false;
+        int myMid = logicalLocation().x + effectiveWidth() / 2;
+        return Math.abs(myMid - q.centerX()) <= MouseQuarry.INTEREST_RADIUS;
+    }
+
+    /**
+     * Chase the live mouse-scurry prop ({@link MouseQuarry}). Mirrors
+     * {@link #chaseBall}: run toward the mouse's current column and, when
+     * adjacent on the same floor, pounce with a paw emote. Closing in
+     * {@link MouseQuarry#startle startles} the mouse so it bolts away,
+     * turning the approach into a proper chase; a small chance per pounce
+     * "catches" it (chomp emote) and ends the cinematic early. Called once
+     * per behaviour tick from {@link BehaviorEngine} (bypassing normal
+     * activity selection) while a mouse is in play and {@link #canHuntMouse}
+     * holds.
+     */
+    public final void huntMouse(World world, MouseQuarry q) {
+        // Stalking face — a non-blocking emote so the long run below isn't
+        // delayed; BehaviorEngine clears it when the chase ends.
+        setEmote("target");
+
+        Rectangle body = bodyBoundsOnScreen();
+        int petW = body.width;
+        int petH = body.height;
+        int myMid = body.x + petW / 2;
+        int mouseMid = q.centerX();
+        int dx = mouseMid - myMid;
+        int edgeGap = Math.abs(dx) - (petW + q.sizePx()) / 2;
+        int myFeetY = body.y + petH;
+        int yTol = Math.max(12, petH / 3);
+        boolean sameFloor = Math.abs(myFeetY - q.feetY()) <= yTol;
+        // Once this close the mouse panics and bolts.
+        int notice = Math.max(260, petW * 4);
+
+        if (edgeGap <= 6 && sameFloor) {
+            // Pounce in place, facing the mouse.
+            List<String> face = (dx >= 0) ? walkRightFrames() : walkLeftFrames();
+            if (!face.isEmpty()) {
+                applySprite(face.get(0));
+            }
+            showEmote("paw", 200);
+            q.startle(myMid);
+            // Small chance to actually catch it: chomp + end the cinematic.
+            if (ThreadLocalRandom.current().nextInt(100) < 12) {
+                q.markCaught();
+                showEmote("chomp", 600);
+                needs.add(Need.BOREDOM, 45);
+            } else {
+                needs.add(Need.BOREDOM, 12);
+            }
+            sleepInterruptible(170);
+            return;
+        }
+
+        // Not adjacent — run toward the mouse's current column, aiming the
+        // BODY CENTER onto the mouse so the sprite overlaps it on arrival
+        // (same overlap trick as chaseBall).
+        if (Math.abs(dx) <= notice) {
+            q.startle(myMid); // close enough that the mouse notices the predator
+        }
+        Rectangle mon = currentMonitorBounds();
+        int frameW = petLabel.getWidth();
+        if (frameW <= 0) {
+            frameW = petSize;
+        }
+        int leftPad = body.x - logicalLocation().x;
+        int targetX = mouseMid - petW / 2 - leftPad;
+        targetX = clampInt(targetX, mon.x, mon.x + mon.width - frameW);
+        runAlongFloor(world, targetX);
+    }
+
+    /**
+     * True if this pet is eligible to chase the live laser dot
+     * ({@link LaserQuarry}) on its next tick: a resident (not the hidden
+     * carrier / a visitor), a {@link Cat} specifically (chasing a laser dot is
+     * a cat thing, so dogs/ducks ignore it), on the dot's monitor, not
+     * hovered/clicked, and with no urgent need (self-care wins over play).
+     */
+    public final boolean canChaseLaser(LaserQuarry q) {
+        if (q == null) return false;
+        if (isVisitor()) return false;
+        if (!(this instanceof Cat)) return false;
+        if (hovered || clicked.get()) return false;
+        if (needs.lowestBelow(15.0) != null) return false;
+        Rectangle myMon = currentMonitorBounds();
+        Rectangle qm = q.monitor();
+        return myMon.x == qm.x && myMon.y == qm.y;
+    }
+
+    /**
+     * Chase the live laser dot ({@link LaserQuarry}). Mirrors {@link #huntMouse}:
+     * run toward the dot's current column and, when adjacent, pounce with a paw
+     * emote. The dot never gets caught (it blinks out on its own); this just
+     * makes a resident cat give frantic chase. Called once per behaviour tick
+     * from {@link BehaviorEngine} (bypassing normal activity selection) while a
+     * dot is in play and {@link #canChaseLaser} holds.
+     */
+    public final void chaseLaser(World world, LaserQuarry q) {
+        // Stalking face — non-blocking so the run below isn't delayed;
+        // BehaviorEngine clears it when the chase ends.
+        setEmote("target");
+
+        Rectangle body = bodyBoundsOnScreen();
+        int petW = body.width;
+        int myMid = body.x + petW / 2;
+        int dotMid = q.centerX();
+        int dx = dotMid - myMid;
+        int edgeGap = Math.abs(dx) - (petW + q.sizePx()) / 2;
+
+        if (edgeGap <= 6) {
+            // Pounce in place, facing the dot.
+            List<String> face = (dx >= 0) ? walkRightFrames() : walkLeftFrames();
+            if (!face.isEmpty()) {
+                applySprite(face.get(0));
+            }
+            showEmote("paw", 180);
+            needs.add(Need.BOREDOM, 10);
+            sleepInterruptible(150);
+            return;
+        }
+
+        // Not adjacent — run toward the dot's current column, aiming the BODY
+        // CENTER onto the dot so the sprite overlaps it on arrival (same trick
+        // as huntMouse / chaseBall).
+        Rectangle mon = currentMonitorBounds();
+        int frameW = petLabel.getWidth();
+        if (frameW <= 0) {
+            frameW = petSize;
+        }
+        int leftPad = body.x - logicalLocation().x;
+        int targetX = dotMid - petW / 2 - leftPad;
+        targetX = clampInt(targetX, mon.x, mon.x + mon.width - frameW);
+        runAlongFloor(world, targetX);
+    }
+
+    /**
      * Pee against the global {@link Tree}: walk over to it, face the trunk,
      * sit, and emit a few {@code splash} emotes. Spawns the tree on the
      * nearest monitor edge if no tree is currently active (the
@@ -4333,7 +5815,7 @@ public abstract class Pet implements Runnable {
 
     /** Check interrupt/pause flags between frames. Returns true if we should bail out. */
     public final boolean interrupted() {
-        if (Thread.currentThread().isInterrupted()) {
+        if (Thread.currentThread().isInterrupted() || activityAbort.get()) {
             return true;
         }
         if (paused.get()) {

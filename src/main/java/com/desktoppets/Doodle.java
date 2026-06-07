@@ -376,6 +376,18 @@ public final class Doodle {
             case "ufo":  return "Sprites/Props/ufo.svg";
             case "ufo-beam": return "Sprites/Props/ufo-beam.svg";
             case "airplane": return "Sprites/Props/airplane.svg";
+            case "mouse": return "Sprites/Props/mouse.svg";
+            case "box":   return "Sprites/Props/box.svg";
+            case "box-open": return "Sprites/Props/box-open.svg";
+            case "cloud": return "Sprites/Props/cloud.svg";
+            case "cloud-happy": return "Sprites/Props/cloud-happy.svg";
+            case "rain1": return "Sprites/Props/rain/rain1.svg";
+            case "rain2": return "Sprites/Props/rain/rain2.svg";
+            case "rain3": return "Sprites/Props/rain/rain3.svg";
+            case "rain4": return "Sprites/Props/rain/rain4.svg";
+            case "drone": return "Sprites/Props/drone.svg";
+            case "laser-dot": return "Sprites/Props/laser-dot.svg";
+            case "sparkle": return "Sprites/Emote/sparkle.svg";
             default:     return null;
         }
     }

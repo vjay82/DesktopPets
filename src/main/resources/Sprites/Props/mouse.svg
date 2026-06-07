@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Prop: a little grey mouse (side view, nose to the RIGHT) used by the
+       rare "mouse scurry" event (MouseVisitor / Pet.runMouseEventLoop). For
+       leftward scurrying the rendered icon is mirrored horizontally at
+       runtime. Square viewBox so it renders through Doodle.render exactly
+       like the other Sprites/Props/*.svg. -->
+  <defs>
+    <linearGradient id="mouseBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#cad0d8"/>
+      <stop offset="0.55" stop-color="#9aa1ad"/>
+      <stop offset="1" stop-color="#6f7682"/>
+    </linearGradient>
+    <radialGradient id="mouseEar" cx="0.5" cy="0.4" r="0.65">
+      <stop offset="0" stop-color="#f6c8d2"/>
+      <stop offset="1" stop-color="#d98ea0"/>
+    </radialGradient>
+  </defs>
+  <!-- A rounded, big-eared CARTOON mouse (think Jerry / the mouse emoji): one
+       smooth body+head+snout silhouette so there's no internal seam, a big round
+       ear, a big cute eye, and pink nose/inner-ear/feet/tail. Nose to the RIGHT;
+       the icon is mirrored at runtime for leftward scurrying. Feet rest at y≈83
+       to match Pet.runMouseEventLoop FOOT=0.83. Whiskers spring from the CHEEK
+       (well behind the nose) so they read as whiskers rather than nose hair. -->
+
+  <!-- Curly tail trailing to the left -->
+  <path d="M16 67 C5 70 1 58 10 54 C15 52 17 58 13 59"
+        fill="none" stroke="#e3a6b1" stroke-width="2.6" stroke-linecap="round"/>
+
+  <!-- Back foot (drawn before the body so the body overlaps its top) -->
+  <ellipse cx="30" cy="80" rx="6" ry="2.6" fill="#e3a6b1"/>
+
+  <!-- Body + head + snout as one smooth cartoon silhouette -->
+  <path d="M12 63
+           C9 47 27 39 41 41
+           C53 42.5 61 45 69 49
+           C77 53 83 57 87 61
+           C89.5 63.2 90.8 64.5 91 66
+           C91.1 67.6 89.6 69.2 87 70.5
+           C81 73.2 74 75 66 76
+           C52 78.4 38 80 27 79.4
+           C18 78.9 13 71 12 63 Z"
+        fill="url(#mouseBody)" stroke="#5b626d" stroke-width="1.6" stroke-linejoin="round"/>
+
+  <!-- Front foot (in front of the body) -->
+  <ellipse cx="58" cy="80.6" rx="5.6" ry="2.5" fill="#e3a6b1"/>
+
+  <!-- Big round ear (signature cartoon-mouse feature) with pink inner ear -->
+  <circle cx="60" cy="38" r="13" fill="url(#mouseBody)" stroke="#5b626d" stroke-width="1.6"/>
+  <circle cx="61" cy="39" r="8" fill="url(#mouseEar)"/>
+
+  <!-- Cheek blush -->
+  <circle cx="80" cy="68" r="4" fill="#f4b8c4" opacity="0.45"/>
+
+  <!-- Big cute eye -->
+  <circle cx="76" cy="59" r="3.2" fill="#23262b"/>
+  <circle cx="77.3" cy="57.7" r="1" fill="#f4f7fa"/>
+
+  <!-- Pink nose at the tip -->
+  <circle cx="90.5" cy="66" r="3" fill="#e98aa0"/>
+  <circle cx="89.6" cy="65.1" r="0.9" fill="#f7c9d3"/>
+
+  <!-- Tiny smile under the snout -->
+  <path d="M88 71 C85 73 82 73 80 72"
+        fill="none" stroke="#5b626d" stroke-width="1" stroke-linecap="round"/>
+</svg>

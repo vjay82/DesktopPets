@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Prop: a grumpy little rain cloud used by the rare "rain cloud" event
+       (RainCloudVisitor / Pet.runRainCloudEventLoop). It drifts over a pet's
+       head, scowling, and the rain itself is a SEPARATE animated sprite
+       (rain1..rain4.svg) shown below the cloud while it hovers — so this
+       sprite is the cloud ONLY, no drops. Square viewBox so it renders
+       through Doodle.render like the other Sprites/Props/*.svg. -->
+  <defs>
+    <linearGradient id="cloudBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b3bdca"/>
+      <stop offset="1" stop-color="#6b7585"/>
+    </linearGradient>
+  </defs>
+  <!-- Cloud puffs -->
+  <g fill="url(#cloudBody)" stroke="#4d5666" stroke-width="1.6" stroke-linejoin="round">
+    <rect x="28" y="40" width="48" height="18" rx="9"/>
+    <ellipse cx="36" cy="42" rx="16" ry="13"/>
+    <ellipse cx="54" cy="35" rx="19" ry="16"/>
+    <ellipse cx="71" cy="43" rx="15" ry="12"/>
+  </g>
+  <!-- Grumpy eyebrows -->
+  <path d="M40 35 L52 41" fill="none" stroke="#2e333d" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M70 35 L58 41" fill="none" stroke="#2e333d" stroke-width="2.4" stroke-linecap="round"/>
+  <!-- Eyes -->
+  <circle cx="46" cy="45" r="2.7" fill="#2e333d"/>
+  <circle cx="64" cy="45" r="2.7" fill="#2e333d"/>
+  <!-- Frown -->
+  <path d="M46 54 Q55 48 64 54" fill="none" stroke="#2e333d" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

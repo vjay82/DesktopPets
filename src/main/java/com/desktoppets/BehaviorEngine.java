@@ -41,6 +41,12 @@ public final class BehaviorEngine {
     private final Map<String, Long> nextEligibleAt = new HashMap<>();
     private long restUntilMs = 0L;
     private String lastChosenName = "";
+    /** True while this pet took the mouse-hunt branch on the previous tick, so
+     *  we know to clear its lingering "target" emote once the chase ends. */
+    private boolean huntingMouseLast = false;
+    /** True while this pet took the laser-chase branch on the previous tick, so
+     *  we know to clear its lingering "target" emote once the chase ends. */
+    private boolean chasingLaserLast = false;
 
     public BehaviorEngine(Pet pet) {
         this.pet = pet;
@@ -104,6 +110,14 @@ public final class BehaviorEngine {
             // Reactions from other pets (DUCK while being jumped over, FLEE
             // when hunted) preempt normal activity selection so the visual
             // sequence stays coherent across the two engine threads.
+            //
+            // Clear the soft activity-abort flag FIRST: another pet may have
+            // set it (alongside a FLEE request) to break us out of whatever we
+            // were doing on the previous tick. It has done its job now that we
+            // are back at the top of the loop, so clear it before we consume
+            // the reaction — otherwise fleeFrom()'s own interrupted() checks
+            // would bail out of the very flee it triggered.
+            pet.clearActivityAbort();
             if (pet.hasActiveReaction()) {
                 switch (pet.reaction()) {
                     case DUCK -> pet.holdDuck();
@@ -124,6 +138,36 @@ public final class BehaviorEngine {
             if (ball != null && pet.canChaseBall(ball)) {
                 pet.chaseBall(world, ball);
                 continue;
+            }
+
+            // Mouse-scurry cinematic: a resident on the mouse's monitor (cats
+            // especially) pursues the scurrying prop before normal activity
+            // selection, same as the ball scrum. The hidden carrier that drives
+            // the prop is excluded inside canHuntMouse. When the chase ends we
+            // clear the stalking "target" emote it left up.
+            Pet.MouseQuarry quarry = Pet.MouseQuarry.active();
+            if (quarry != null && pet.canHuntMouse(quarry)) {
+                huntingMouseLast = true;
+                pet.huntMouse(world, quarry);
+                continue;
+            } else if (huntingMouseLast) {
+                huntingMouseLast = false;
+                pet.hideEmote();
+            }
+
+            // Laser-pointer cinematic: a resident cat on the dot's monitor
+            // chases the darting light point, same as the mouse scrum. The
+            // carrier that drives the dot is hidden / excluded inside
+            // canChaseLaser (a visiting cat does its own chasing instead). When
+            // the chase ends we clear the stalking "target" emote it left up.
+            Pet.LaserQuarry laser = Pet.LaserQuarry.active();
+            if (laser != null && pet.canChaseLaser(laser)) {
+                chasingLaserLast = true;
+                pet.chaseLaser(world, laser);
+                continue;
+            } else if (chasingLaserLast) {
+                chasingLaserLast = false;
+                pet.hideEmote();
             }
 
             Activity chosen = pick(world);

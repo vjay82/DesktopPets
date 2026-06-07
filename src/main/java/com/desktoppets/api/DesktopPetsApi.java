@@ -10,12 +10,17 @@ import javax.swing.ImageIcon;
 
 import com.desktoppets.AirplaneVisitor;
 import com.desktoppets.BirdVisitor;
+import com.desktoppets.CardboardBoxVisitor;
 import com.desktoppets.Config;
 import com.desktoppets.Doodle;
+import com.desktoppets.DroneVisitor;
+import com.desktoppets.LaserPointerVisitor;
 import com.desktoppets.Log;
+import com.desktoppets.MouseVisitor;
 import com.desktoppets.Pet;
 import com.desktoppets.PetSupervisor;
 import com.desktoppets.PetVisitor;
+import com.desktoppets.RainCloudVisitor;
 import com.desktoppets.SpecialEvents;
 import com.desktoppets.UfoVisitor;
 import com.desktoppets.World;
@@ -282,6 +287,11 @@ public final class DesktopPetsApi {
                     specialEvents.register(UfoVisitor.event());
                     specialEvents.register(PetVisitor.event());
                     specialEvents.register(AirplaneVisitor.event());
+                    specialEvents.register(MouseVisitor.event());
+                    specialEvents.register(RainCloudVisitor.event());
+                    specialEvents.register(DroneVisitor.event());
+                    specialEvents.register(CardboardBoxVisitor.event());
+                    specialEvents.register(LaserPointerVisitor.event());
                     birdRegistration = specialEvents.register(BirdVisitor.event());
                     specialEvents.startWhenResidentsPresent();
                 } catch (Throwable t) {
