@@ -188,12 +188,6 @@ public final class DCompStage {
      *  below. */
     private static final long HTTRANSPARENT = -1L;
 
-    /** Diagnostic: number of WM_NCHITTEST messages the overlay has answered
-     *  with HTTRANSPARENT. Non-zero while the mouse is over the overlay proves
-     *  the WndProc is receiving hit-tests and the window is click-through. */
-    private static final java.util.concurrent.atomic.AtomicInteger NCHIT_COUNT =
-            new java.util.concurrent.atomic.AtomicInteger();
-
     private static final int SM_XVIRTUALSCREEN = 76;
     private static final int SM_YVIRTUALSCREEN = 77;
     private static final int SM_CXVIRTUALSCREEN = 78;
@@ -426,8 +420,6 @@ public final class DCompStage {
 
         try (Arena pump = Arena.ofConfined()) {
             MemorySegment msg = pump.allocate(48); // MSG (x64)
-            long lastBeat = System.currentTimeMillis();
-            long iterations = 0;
             while (running.get()) {
                 // 1) Always drain the window message queue FIRST. This window is
                 //    full-screen + topmost, so any delay answering WM_NCHITTEST
@@ -450,13 +442,6 @@ public final class DCompStage {
                     }
                 }
                 pumpMessages(msg);
-                iterations++;
-                long now = System.currentTimeMillis();
-                if (now - lastBeat >= 1000) {
-                    log("pump: iter=" + iterations + " nchit=" + NCHIT_COUNT.get()
-                            + " queue=" + tasks.size());
-                    lastBeat = now;
-                }
                 // 3) Idle only when there's nothing to do, and briefly, so the
                 //    next WM_NCHITTEST is serviced with minimal latency.
                 if (tasks.isEmpty()) {
@@ -507,7 +492,6 @@ public final class DCompStage {
             }
             log("ready: hwnd=0x" + Long.toHexString(hwnd) + " origin=(" + originX + "," + originY
                     + ") size=" + vw + "x" + vh);
-            logGeometryDiagnostics();
             return true;
         } catch (Throwable t) {
             log("initNative failed: " + t);
@@ -547,10 +531,6 @@ public final class DCompStage {
             // polled by PetMouse (cursor + GetAsyncKeyState), never delivered
             // as window messages, so nothing is lost.
             if (msg == WM_NCHITTEST) {
-                int n = NCHIT_COUNT.incrementAndGet();
-                if (n <= 5) {
-                    log("WM_NCHITTEST #" + n + " -> HTTRANSPARENT (click-through)");
-                }
                 return HTTRANSPARENT;
             }
             return (long) DefWindowProcW.invokeExact(hWnd, msg, wParam, lParam);
@@ -729,30 +709,6 @@ public final class DCompStage {
                 ppDevice,                    // ppDevice
                 MemorySegment.NULL,          // pFeatureLevel (out, ignored)
                 ppContext);                  // ppImmediateContext
-    }
-
-    /** Log the physical monitor rects and AWT device bounds/scales side by
-     *  side, so the logical→physical coordinate mapping can be calibrated. */
-    private void logGeometryDiagnostics() {
-        try {
-            StringBuilder sb = new StringBuilder("physicalMonitors: ");
-            for (int[] r : physicalMonitors()) {
-                sb.append("[@(").append(r[0]).append(',').append(r[1]).append(") ")
-                        .append(r[2] - r[0]).append('x').append(r[3] - r[1]).append("] ");
-            }
-            log(sb.toString());
-            java.awt.GraphicsEnvironment ge =
-                    java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment();
-            for (java.awt.GraphicsDevice gd : ge.getScreenDevices()) {
-                java.awt.GraphicsConfiguration cfg = gd.getDefaultConfiguration();
-                java.awt.Rectangle b = cfg.getBounds();
-                java.awt.geom.AffineTransform tx = cfg.getDefaultTransform();
-                log("awtDevice " + gd.getIDstring() + " logical=[@(" + b.x + "," + b.y + ") "
-                        + b.width + "x" + b.height + "] scale=" + tx.getScaleX() + "x" + tx.getScaleY());
-            }
-        } catch (Throwable t) {
-            log("geometry diagnostics failed: " + t);
-        }
     }
 
     private void teardownNative() {
