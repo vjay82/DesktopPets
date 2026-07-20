@@ -23,6 +23,10 @@ import javax.swing.JPanel;
 public final class PetWindow {
 
     private final JPanel panel;
+    /** {@code true} → render via {@link DCompBackend} (DirectComposition);
+     *  {@code false} → the legacy Swing {@link Stage}. Decided once, on the
+     *  first pet-window creation, and fixed for this window's life. */
+    private final boolean dcomp;
     private int x;
     private int y;
     private int width;
@@ -33,9 +37,15 @@ public final class PetWindow {
         this.panel = new JPanel(null);
         this.panel.setOpaque(false);
         this.panel.setBackground(new Color(0, 0, 0, 0));
+        // DirectComposition is the default backend; ensureInit() returns
+        // false (→ Swing Stage fallback) on non-Windows, device-creation
+        // failure, or when disabled via desktoppets.dcomp / DESKTOPPETS_DCOMP.
+        this.dcomp = DCompBackend.ensureInit();
     }
 
-    /** The underlying Swing container — pet labels are added to it directly. */
+    /** The underlying Swing container — pet labels are added to it directly.
+     *  Under DComp it is painted off-screen; under Swing it lives on the
+     *  {@link Stage} canvas. */
     public JPanel panel() {
         return panel;
     }
@@ -44,16 +54,27 @@ public final class PetWindow {
         panel.add(child);
     }
 
+    /** Visibility as seen by the DComp render driver (the {@code visible}
+     *  flag, independent of any realised Swing peer). */
+    boolean isVisibleForDComp() {
+        return visible;
+    }
+
     public void setSize(int w, int h) {
         this.width = w;
         this.height = h;
-        Stage.setBounds(panel, x, y, w, h);
+        if (!dcomp) {
+            Stage.setBounds(panel, x, y, w, h);
+        }
+        // DComp: the render driver reads width/height every frame.
     }
 
     public void setLocation(int sx, int sy) {
         this.x = sx;
         this.y = sy;
-        Stage.setLocation(panel, sx, sy);
+        if (!dcomp) {
+            Stage.setLocation(panel, sx, sy);
+        }
     }
 
     public void setBounds(int sx, int sy, int w, int h) {
@@ -61,7 +82,9 @@ public final class PetWindow {
         this.y = sy;
         this.width = w;
         this.height = h;
-        Stage.setBounds(panel, sx, sy, w, h);
+        if (!dcomp) {
+            Stage.setBounds(panel, sx, sy, w, h);
+        }
     }
 
     public boolean isVisible() {
@@ -82,27 +105,40 @@ public final class PetWindow {
     public void repaint()    { panel.repaint(); }
 
     /**
-     * Attach the panel to the appropriate stage at its current
+     * Attach the panel to the appropriate backend at its current
      * {@code (x, y)} and size, making it visible. Idempotent — safe to
      * call multiple times.
      */
     public void show() {
-        Stage.attach(panel, x, y);
-        // Size may have been set before attach; make sure it sticks.
-        Stage.setBounds(panel, x, y, width, height);
+        this.visible = true;
+        if (dcomp) {
+            DCompBackend.register(this);
+        } else {
+            Stage.attach(panel, x, y);
+            // Size may have been set before attach; make sure it sticks.
+            Stage.setBounds(panel, x, y, width, height);
+        }
         setVisible(true);
     }
 
-    /** Remove the panel from the stage. The wrapper is single-shot — do not
+    /** Remove the panel from the backend. The wrapper is single-shot — do not
      *  call {@link #show()} after dispose. */
     public void dispose() {
-        Stage.detach(panel);
+        if (dcomp) {
+            DCompBackend.unregister(this);
+        } else {
+            Stage.detach(panel);
+        }
     }
 
-    /** Bring this panel to the front of its stage canvas so it paints over the
-     *  pets (e.g. a cardboard box in front of the kitten sitting inside it). */
+    /** Bring this panel to the front so it paints over the other pets (e.g. a
+     *  cardboard box in front of the kitten sitting inside it). */
     public void toFront() {
-        Stage.toFront(panel);
+        if (dcomp) {
+            DCompBackend.toFront(this);
+        } else {
+            Stage.toFront(panel);
+        }
     }
 
     /** Initial-bounds variant of {@link #show()} so callers don't have to
@@ -112,26 +148,33 @@ public final class PetWindow {
         this.y = sy;
         this.width = w;
         this.height = h;
-        Stage.attach(panel, sx, sy);
-        Stage.setBounds(panel, sx, sy, w, h);
+        if (dcomp) {
+            DCompBackend.register(this);
+        } else {
+            Stage.attach(panel, sx, sy);
+            Stage.setBounds(panel, sx, sy, w, h);
+        }
         setVisible(true);
     }
 
     /**
-     * Attach the panel to the stage covering the GIVEN monitor (chosen
-     * explicitly, not from the panel's top-left point) at the supplied
-     * screen-coord bounds, and make it visible. Unlike {@link #show(int,
-     * int, int, int)} this lands the pet on the correct monitor even when
-     * its top-left starts fully OFF that monitor — the spawn / re-entry
-     * walks position the pet just outside the entry edge and rely on the
-     * stage canvas to clip the full-size panel until it walks inward.
+     * Attach the panel at the supplied screen-coord bounds and make it
+     * visible. Under Swing the panel lands on the stage covering the GIVEN
+     * monitor, so a pet whose top-left starts fully OFF that monitor still
+     * lands correctly and is clipped until it walks inward. Under DComp
+     * positions are absolute virtual-desktop coordinates, so the monitor
+     * hint is unused.
      */
     public void showOnMonitor(Rectangle monitor, int sx, int sy, int w, int h) {
         this.x = sx;
         this.y = sy;
         this.width = w;
         this.height = h;
-        Stage.attachToMonitor(panel, monitor, sx, sy, w, h);
+        if (dcomp) {
+            DCompBackend.register(this);
+        } else {
+            Stage.attachToMonitor(panel, monitor, sx, sy, w, h);
+        }
         setVisible(true);
     }
 }
