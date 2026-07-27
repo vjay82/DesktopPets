@@ -193,6 +193,52 @@ public final class DCompBackend {
         monitors = out;
     }
 
+    /**
+     * Reconcile the backend with a changed display configuration (monitor
+     * attached / removed, resolution or DPI change). Invoked by
+     * {@link DisplayWatcher}. No-op unless DirectComposition is the active
+     * backend.
+     *
+     * <p>Three cached pieces go stale on a display change and are refreshed
+     * here:
+     * <ol>
+     *   <li>the host window, sized once to the old virtual-screen bounds —
+     *       {@link DCompStage#resizeToVirtualScreen()} re-fits it and updates
+     *       the origin used for visual offsets;</li>
+     *   <li>the logical→physical {@link #monitors} map — rebuilt so DPI
+     *       scaling and physical origins are correct for the new layout;</li>
+     *   <li>each live pet's last-pushed position — cleared so the next
+     *       render {@link #tick()} re-pushes every visual's offset (and
+     *       re-evaluates its physical size) against the new origin and
+     *       monitor map, even for idle pets whose logical position did not
+     *       change.</li>
+     * </ol>
+     * Runs the registry mutation on the EDT (the registry is EDT-confined).
+     */
+    static void onDisplaysChanged() {
+        if (!active) {
+            return;
+        }
+        onEdt(() -> {
+            try {
+                if (stage != null) {
+                    stage.resizeToVirtualScreen();
+                }
+            } catch (Throwable t) {
+                Log.warn("dcomp", "resizeToVirtualScreen failed: " + t);
+            }
+            buildMonitorMap();
+            // Force every visual to re-push its position (and re-check its
+            // physical size) on the next tick — origin / DPI scale may have
+            // changed even when a pet's logical position did not.
+            for (State s : REGISTRY.values()) {
+                s.lastX = Integer.MIN_VALUE;
+                s.lastY = Integer.MIN_VALUE;
+            }
+            Log.info("dcomp", "displays changed → remapped " + monitors.size() + " monitors");
+        });
+    }
+
     /** Monitor whose logical bounds contain {@code (x, y)}, or the nearest by
      *  centre distance (pets spawn/walk off-screen), or {@code null} if the
      *  map is empty. */

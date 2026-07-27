@@ -12,6 +12,7 @@ import com.desktoppets.AirplaneVisitor;
 import com.desktoppets.BirdVisitor;
 import com.desktoppets.CardboardBoxVisitor;
 import com.desktoppets.Config;
+import com.desktoppets.DisplayWatcher;
 import com.desktoppets.Doodle;
 import com.desktoppets.DroneVisitor;
 import com.desktoppets.LaserPointerVisitor;
@@ -269,6 +270,14 @@ public final class DesktopPetsApi {
                 } catch (Throwable t) {
                     Log.warn("api", "cursor sampler failed: " + t);
                 }
+                // Keep the per-monitor rendering state (Swing stages / DComp
+                // monitor map + host window) in sync when the user plugs in or
+                // unplugs a screen or changes resolution while pets are live.
+                try {
+                    DisplayWatcher.start();
+                } catch (Throwable t) {
+                    Log.warn("api", "display watcher failed: " + t);
+                }
                 supervisor = new PetSupervisor();
                 // Central scheduler for all rare special events (UFO,
                 // cross-species solo-pet visitor, wandering bird). Each event
@@ -345,6 +354,11 @@ public final class DesktopPetsApi {
                     Log.warn("api", "supervisor.shutdown failed: " + t);
                 }
                 supervisor = null;
+            }
+            try {
+                DisplayWatcher.stop();
+            } catch (Throwable t) {
+                Log.warn("api", "display watcher stop failed: " + t);
             }
             RUNNING.set(false);
         }

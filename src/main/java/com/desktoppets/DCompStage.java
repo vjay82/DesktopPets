@@ -110,6 +110,8 @@ public final class DCompStage {
             FunctionDescriptor.of(I32, PTR, I32));
     private static final MethodHandle DestroyWindow = dc(USER32, "DestroyWindow",
             FunctionDescriptor.of(I32, PTR));
+    private static final MethodHandle MoveWindow = dc(USER32, "MoveWindow",
+            FunctionDescriptor.of(I32, PTR, I32, I32, I32, I32, I32));
     private static final MethodHandle GetSystemMetrics = dc(USER32, "GetSystemMetrics",
             FunctionDescriptor.of(I32, I32));
     private static final MethodHandle PeekMessageW = dc(USER32, "PeekMessageW",
@@ -390,6 +392,43 @@ public final class DCompStage {
     /** Make all pending visual-tree changes visible. Cheap; batch per frame. */
     public void commit() {
         runAsync(() -> com0(dcompDevice, DEV_COMMIT));
+    }
+
+    /**
+     * Re-fit the host window to the CURRENT virtual-desktop bounds and update
+     * the cached origin used to translate virtual-desktop screen coordinates
+     * into host-window-relative visual offsets. Call after a monitor is
+     * attached / removed or a resolution change (see {@link DisplayWatcher} /
+     * {@link DCompBackend#onDisplaysChanged()}): the host window was sized once
+     * at init to span the virtual screen, so a monitor added beyond the old
+     * bounds — or a resolution grow — would otherwise clip every pet drawn
+     * outside the stale rectangle. Runs on the owner thread. Callers must
+     * re-push visual positions afterwards (the offsets are relative to the new
+     * origin); {@link DCompBackend#onDisplaysChanged()} does this by forcing a
+     * position refresh on the next render tick.
+     */
+    public void resizeToVirtualScreen() {
+        if (!ready.get()) {
+            return;
+        }
+        runSync(() -> {
+            try {
+                int nx = invokeInt(GetSystemMetrics, SM_XVIRTUALSCREEN);
+                int ny = invokeInt(GetSystemMetrics, SM_YVIRTUALSCREEN);
+                int vw = invokeInt(GetSystemMetrics, SM_CXVIRTUALSCREEN);
+                int vh = invokeInt(GetSystemMetrics, SM_CYVIRTUALSCREEN);
+                if (hwnd == 0L || vw <= 0 || vh <= 0) {
+                    return;
+                }
+                invokeInt(MoveWindow, MemorySegment.ofAddress(hwnd), nx, ny, vw, vh, 1);
+                originX = nx;
+                originY = ny;
+                log("host re-fitted to virtual screen " + vw + "x" + vh
+                        + " origin=(" + nx + "," + ny + ")");
+            } catch (Throwable t) {
+                log("resizeToVirtualScreen failed: " + t);
+            }
+        });
     }
 
     // ────────────────────────────────────────────────────────────────────

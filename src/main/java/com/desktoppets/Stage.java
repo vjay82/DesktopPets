@@ -299,6 +299,121 @@ public final class Stage {
         return new Rectangle(w.originX, w.originY, w.canvas.getWidth(), w.canvas.getHeight());
     }
 
+    /**
+     * Reconcile the per-monitor stage windows with the CURRENT display
+     * configuration. Call this after a monitor is attached / removed, or a
+     * resolution / DPI change (see {@link DisplayWatcher}).
+     *
+     * <p>Each stage window is a fullscreen {@link JFrame} built once for a
+     * specific {@link GraphicsDevice} with fixed bounds. When that device
+     * vanishes (monitor unplugged) or its bounds change (resolution swap),
+     * the window is now stale — the wrong size, on a monitor that no longer
+     * exists, or clipping pets that AWT already reports at new coordinates.
+     * This method disposes every stale stage window and re-homes the pets
+     * that were on it onto a still-valid monitor's stage (rebuilt on demand
+     * by {@link #stageWindowFor}), clamped into the surviving desktop so a
+     * pet from an unplugged monitor is never stranded off-screen. Newly
+     * attached monitors need no work here — their stage is created lazily
+     * the first time a pet walks onto them. EDT-safe.
+     */
+    public static void refreshDisplays() {
+        runOnEdt(Stage::refreshDisplaysOnEdt);
+    }
+
+    private static synchronized void refreshDisplaysOnEdt() {
+        final GraphicsDevice[] devs;
+        try {
+            devs = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+        } catch (Throwable t) {
+            return;
+        }
+        // Identify stale stage windows: the backing device is gone, or its
+        // bounds no longer match the ones the window was built for.
+        List<StageWindow> stale = new ArrayList<>();
+        for (Map.Entry<GraphicsDevice, StageWindow> e : new ArrayList<>(WINDOWS.entrySet())) {
+            GraphicsDevice dev = e.getKey();
+            StageWindow sw = e.getValue();
+            Rectangle live = null;
+            for (GraphicsDevice d : devs) {
+                if (d == dev) {
+                    try {
+                        live = d.getDefaultConfiguration().getBounds();
+                    } catch (Throwable ignore) {
+                        // treat as gone
+                    }
+                    break;
+                }
+            }
+            if (live == null || !live.equals(sw.bounds)) {
+                stale.add(sw);
+                WINDOWS.remove(dev);
+            }
+        }
+        if (stale.isEmpty()) {
+            return;
+        }
+        // Snapshot the pets on the stale stages (in screen coords) BEFORE
+        // disposing their windows, then dispose.
+        List<Orphan> orphans = new ArrayList<>();
+        for (StageWindow sw : stale) {
+            for (int i = sw.canvas.getComponentCount() - 1; i >= 0; i--) {
+                java.awt.Component ch = sw.canvas.getComponent(i);
+                if (ch instanceof JComponent jc) {
+                    orphans.add(new Orphan(jc, jc.getX() + sw.originX,
+                            jc.getY() + sw.originY, jc.getWidth(), jc.getHeight()));
+                }
+            }
+            sw.canvas.removeAll();
+            sw.frame.dispose();
+            Log.info("stage", "disposed stale stage for monitor "
+                    + sw.bounds.width + "x" + sw.bounds.height
+                    + "@(" + sw.bounds.x + "," + sw.bounds.y + ")");
+        }
+        // Re-home the orphaned pets onto a surviving stage (built on demand).
+        Rectangle union = unionOf(devs);
+        for (Orphan o : orphans) {
+            int sx = o.x();
+            int sy = o.y();
+            if (union != null) {
+                sx = Math.max(union.x, Math.min(sx, union.x + union.width - o.w()));
+                sy = Math.max(union.y, Math.min(sy, union.y + union.height - o.h()));
+            }
+            StageWindow target = stageWindowFor(sx, sy);
+            if (target == null) {
+                continue;
+            }
+            if (o.c().getParent() != target.canvas) {
+                if (o.c().getParent() != null) {
+                    o.c().getParent().remove(o.c());
+                }
+                target.canvas.add(o.c());
+            }
+            o.c().setBounds(sx - target.originX, sy - target.originY, o.w(), o.h());
+            o.c().setVisible(true);
+        }
+        reassertTopmost();
+    }
+
+    /** A pet component displaced from a disposed stage, with the screen-coord
+     *  bounds it should be restored at. */
+    private record Orphan(JComponent c, int x, int y, int w, int h) {
+    }
+
+    /** Union of every current {@link GraphicsDevice}'s bounds (including
+     *  negative coordinates), or {@code null} if none can be read. */
+    private static Rectangle unionOf(GraphicsDevice[] devs) {
+        Rectangle union = null;
+        for (GraphicsDevice d : devs) {
+            try {
+                Rectangle b = d.getDefaultConfiguration().getBounds();
+                union = (union == null) ? new Rectangle(b) : union.union(b);
+            } catch (Throwable ignore) {
+                // skip a device we can't read
+            }
+        }
+        return union;
+    }
+
     // ---------------- internals ----------------
 
     private static synchronized StageWindow stageWindowFor(int x, int y) {

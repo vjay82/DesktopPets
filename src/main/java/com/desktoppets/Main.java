@@ -22,6 +22,10 @@ public final class Main {
         // history independent of which activity each pet is currently
         // running.
         World.startCursorSampler();
+        // Reconcile the per-monitor rendering state (Swing stages / DComp
+        // monitor map + host window) when a screen is attached / removed or the
+        // resolution changes while pets are running.
+        DisplayWatcher.start();
         // Stage windows are click-through (so they don't trap user input);
         // hover/click on pets is delivered by polling the cursor + button
         // state in PetMouse and dispatching to whichever pet is under the
