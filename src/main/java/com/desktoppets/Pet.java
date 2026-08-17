@@ -2157,9 +2157,11 @@ public abstract class Pet implements Runnable {
      */
     private static final class AirplaneWindow {
         private final JFrame frame;
+        private final int size;
 
-        private AirplaneWindow(JFrame frame) {
+        private AirplaneWindow(JFrame frame, int size) {
             this.frame = frame;
+            this.size = size;
         }
 
         /** Build + show the plane window off-screen at {@code (x, y)} with the
@@ -2209,14 +2211,17 @@ public abstract class Pet implements Runnable {
             } catch (Exception e) {
                 Log.warn("airplane", "window create failed: " + e);
             }
-            return new AirplaneWindow(out[0]);
+            return new AirplaneWindow(out[0], size);
         }
 
         /** Move the plane to {@code (x, y)} in virtual-desktop screen pixels. */
         void setLocation(int x, int y) {
             JFrame f = frame;
             if (f != null) {
-                SwingUtilities.invokeLater(() -> f.setLocation(x, y));
+                SwingUtilities.invokeLater(() -> {
+                    f.setLocation(x, y);
+                    resizeIfDpiChanged(f, size);
+                });
             }
         }
 
@@ -2232,10 +2237,24 @@ public abstract class Pet implements Runnable {
         }
     }
 
+    /**
+     * Re-assert a prop window's size after it moved. Sky props are created at
+     * their off-screen entry position, where no monitor contains them, so the
+     * window is born with the primary screen's DPI scale; once it lands on a
+     * monitor with a different scale, its size is off by that scale factor and
+     * the sprite is clipped (only the upper-left quarter shows on a 96 dpi
+     * screen next to a 192 dpi primary). Setting the size again on the new
+     * monitor restores it. Cheap and idempotent: a no-op while the size holds.
+     */
+    private static void resizeIfDpiChanged(JFrame f, int size) {
+        if (f != null && (f.getWidth() != size || f.getHeight() != size)) {
+            f.setSize(size, size);
+        }
+    }
+
     /** Horizontally-mirrored copy of an icon — used to flip the nose-right
      *  plane prop for leftward flight. */
-    private static ImageIcon mirroredHoriz(ImageIcon src) {
-        int w = src.getIconWidth();
+    private static ImageIcon mirroredHoriz(ImageIcon src) {        int w = src.getIconWidth();
         int h = src.getIconHeight();
         if (w <= 0 || h <= 0) {
             return src;
@@ -2263,10 +2282,14 @@ public abstract class Pet implements Runnable {
     private static final class OverlayWindow implements MovableProp {
         private final JFrame frame;
         private final JLabel label;
+        /** Logical size of the prop; re-asserted on every move, see
+         *  {@link Pet#resizeIfDpiChanged}. */
+        private volatile int size;
 
-        private OverlayWindow(JFrame frame, JLabel label) {
+        private OverlayWindow(JFrame frame, JLabel label, int size) {
             this.frame = frame;
             this.label = label;
+            this.size = size;
         }
 
         /** Build + show the overlay off-screen at {@code (x, y)} carrying
@@ -2315,7 +2338,7 @@ public abstract class Pet implements Runnable {
             } catch (Exception e) {
                 Log.warn("overlay", "window create failed: " + e);
             }
-            return new OverlayWindow(outF[0], outL[0]);
+            return new OverlayWindow(outF[0], outL[0], size);
         }
 
         /** Swap the prop sprite (same window) — e.g. open/close the box. */
@@ -2326,9 +2349,11 @@ public abstract class Pet implements Runnable {
             }
             ImageIcon base = Doodle.icon("prop/" + propKey, size);
             final ImageIcon icon = (mirror && base != null) ? mirroredHoriz(base) : base;
+            this.size = size;
             SwingUtilities.invokeLater(() -> {
                 lb.setBounds(0, 0, size, size);
                 lb.setIcon(icon);
+                resizeIfDpiChanged(frame, size);
             });
         }
 
@@ -2337,7 +2362,10 @@ public abstract class Pet implements Runnable {
         public void setLocation(int x, int y) {
             JFrame f = frame;
             if (f != null) {
-                SwingUtilities.invokeLater(() -> f.setLocation(x, y));
+                SwingUtilities.invokeLater(() -> {
+                    f.setLocation(x, y);
+                    resizeIfDpiChanged(f, size);
+                });
             }
         }
 
