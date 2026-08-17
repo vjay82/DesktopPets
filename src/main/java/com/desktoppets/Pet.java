@@ -428,6 +428,16 @@ public abstract class Pet implements Runnable {
      */
     private static final CopyOnWriteArrayList<Pet> ACTIVE_PETS = new CopyOnWriteArrayList<>();
 
+    /**
+     * Pets that have claimed an entry monitor, used by
+     * {@link #pickSpreadMonitor} to count per-monitor occupancy. Separate
+     * from {@link #ACTIVE_PETS} because a pet claims its monitor while it is
+     * still initialising on the EDT, before its behaviour loop registers it
+     * — without that, a burst of spawns would all see an empty desktop and
+     * pile onto the same screen.
+     */
+    private static final CopyOnWriteArrayList<Pet> MONITOR_CLAIMS = new CopyOnWriteArrayList<>();
+
     /** Snapshot of currently-running pets. Safe to iterate. */
     public static List<Pet> activePets() {
         return ACTIVE_PETS;
@@ -2707,7 +2717,7 @@ public abstract class Pet implements Runnable {
             return;
         }
         EntryPlan plan = pickReentryPlan(mon, primaryMonitorBounds());
-        activeMonitor = plan.monitor;
+        claimMonitor(plan.monitor);
         moveFrameTo(plan.entryStart.x, plan.entryStart.y);
         refreshCurrentSprite();
         walkAlongFloor(world, plan.target.x);
@@ -2946,11 +2956,23 @@ public abstract class Pet implements Runnable {
             }
         } finally {
             ACTIVE_PETS.remove(this);
+            MONITOR_CLAIMS.remove(this);
+        }
+    }
+
+    /** Binds the pet to {@code mon} and records the claim so the next spawn
+     *  can spread over the screens. Visitors are transient and are placed
+     *  next to a resident, so they do not claim a monitor. */
+    private void claimMonitor(Rectangle mon) {
+        activeMonitor = mon;
+        if (!isVisitor()) {
+            MONITOR_CLAIMS.addIfAbsent(this);
         }
     }
 
     public final void disposeWindow() {
         ACTIVE_PETS.remove(this);
+        MONITOR_CLAIMS.remove(this);
         if (frame == null) {
             return;
         }
@@ -3035,7 +3057,7 @@ public abstract class Pet implements Runnable {
                 firstSetLocation = plan.entryStart;
                 pendingEntryTargetX = plan.target.x;
                 pendingEntryTargetY = plan.fromAbove ? plan.target.y : null;
-                activeMonitor = plan.monitor;
+                claimMonitor(plan.monitor);
                 Log.info("pet:" + name,
                         "entry from " + (plan.fromAbove
                                 ? "above"
@@ -3137,105 +3159,108 @@ public abstract class Pet implements Runnable {
     }
 
     /**
-     * Picks a random visible monitor and a random side (left or right) for
-     * the spawn entry walk. The pet starts just outside the chosen side at
-     * the monitor's work-area floor and a target X is chosen at random
-     * within the monitor's interior; {@link #walkAlongFloor} then carries
-     * the pet onto the screen along the floor.
+     * Picks the monitor and a random side (left or right) for the spawn
+     * entry walk. The pet starts just outside the chosen side at the
+     * monitor's work-area floor and a target X is chosen at random within
+     * the monitor's interior; {@link #walkAlongFloor} then carries the pet
+     * onto the screen along the floor.
+     *
+     * <p>The monitor is not picked at random: it is the one currently
+     * hosting the fewest pets (see {@link #pickSpreadMonitor}), so on a
+     * multi-monitor desktop the pets spread over the screens instead of
+     * piling up on whichever one the dice happened to favour — pets never
+     * walk across a screen border, so an unlucky spawn would otherwise
+     * leave a monitor empty for the rest of the session.
      *
      * <p>{@code primary} is used only as a safe fallback if {@code
      * GraphicsEnvironment} throws or returns no devices.
      */
     private EntryPlan pickEntryPlan(Rectangle primary) {
-        Rectangle mon;
-        try {
-            GraphicsDevice[] all =
-                    GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
-            // Skip degenerate screens (zero/negative area) AND duplicate
-            // mirrors (same bounds as a previously-seen device): spawning
-            // onto a 0×0 phantom monitor leaves the pet permanently
-            // off-screen, and spawning onto a mirror would visually
-            // duplicate but live on a different GraphicsDevice from the one
-            // walkAlongFloor's currentMonitorBounds picks back, breaking
-            // edge clipping.
-            java.util.List<Rectangle> usable = new java.util.ArrayList<>();
-            for (GraphicsDevice d : all) {
-                Rectangle b = d.getDefaultConfiguration().getBounds();
-                if (b.width <= 0 || b.height <= 0) {
-                    continue;
-                }
-                boolean dup = false;
-                for (Rectangle u : usable) {
-                    if (u.equals(b)) {
-                        dup = true;
-                        break;
-                    }
-                }
-                if (!dup) {
-                    usable.add(b);
-                }
-            }
-            if (usable.isEmpty()) {
-                mon = primary;
-            } else {
-                mon = usable.get(ThreadLocalRandom.current().nextInt(usable.size()));
-            }
-        } catch (Throwable t) {
-            mon = primary;
-        }
-        return entryPlanFor(mon);
+        return entryPlanFor(pickSpreadMonitor(usableMonitors(primary), primary));
     }
 
     /**
-     * Like {@link #pickEntryPlan} but biases the re-entry monitor choice
-     * based on how many monitors are available:
+     * Chooses the entry monitor so the pets stay spread over the attached
+     * screens:
      * <ul>
-     *   <li>Single monitor: trivially same monitor (only option).</li>
-     *   <li>Multi-monitor: {@value #DIFFERENT_MONITOR_REENTRY_CHANCE} of
-     *       the time the pet re-enters on a DIFFERENT monitor than the
-     *       one it just left, so the cross-screen migration is actually
-     *       visible to the user; the remaining fraction it re-enters on
-     *       the same monitor for DPI/size consistency.</li>
+     *   <li>no pet is out yet → the primary screen, so the very first pet
+     *       always appears where the user is looking;</li>
+     *   <li>otherwise the monitor hosting the fewest pets (this pet itself
+     *       is not counted, so a re-entering pet is free to move to a
+     *       quieter screen);</li>
+     *   <li>ties are broken randomly.</li>
      * </ul>
-     * Previously this used an 80% same-monitor bias plus an unconditional
-     * random pick across all monitors, which on a typical 2-monitor
-     * setup meant only ~10% of disappear/reappear events actually
-     * switched screens — making it feel like pets never leave their
-     * monitor.
+     */
+    private Rectangle pickSpreadMonitor(java.util.List<Rectangle> usable, Rectangle primary) {
+        if (usable.isEmpty()) {
+            return primary;
+        }
+        if (usable.size() == 1) {
+            return usable.get(0);
+        }
+        int[] counts = new int[usable.size()];
+        int total = 0;
+        for (Pet p : MONITOR_CLAIMS) {
+            if (p == this) {
+                continue;
+            }
+            Rectangle m = p.activeMonitor;
+            if (m == null) {
+                continue;
+            }
+            for (int i = 0; i < usable.size(); i++) {
+                if (usable.get(i).equals(m)) {
+                    counts[i]++;
+                    total++;
+                    break;
+                }
+            }
+        }
+        if (total == 0) {
+            for (Rectangle b : usable) {
+                if (b.equals(primary)) {
+                    return b;
+                }
+            }
+            return usable.get(0);
+        }
+        int min = Integer.MAX_VALUE;
+        for (int c : counts) {
+            min = Math.min(min, c);
+        }
+        java.util.List<Rectangle> leastBusy = new java.util.ArrayList<>();
+        for (int i = 0; i < usable.size(); i++) {
+            if (counts[i] == min) {
+                leastBusy.add(usable.get(i));
+            }
+        }
+        return leastBusy.get(ThreadLocalRandom.current().nextInt(leastBusy.size()));
+    }
+
+    /**
+     * Like {@link #pickEntryPlan}, for a pet that just left the screen and
+     * comes back: it re-enters on the monitor hosting the fewest OTHER
+     * pets, so a disappear/reappear cycle keeps the screens balanced
+     * instead of letting every pet drift onto one of them. With the pets
+     * already balanced this is a coin flip between the tied monitors, so
+     * the cross-screen migration stays visible.
+     *
+     * <p>{@code preferred} (the monitor the pet just left) is only used
+     * when the monitor set cannot be determined.
      */
     private EntryPlan pickReentryPlan(Rectangle preferred, Rectangle primary) {
         java.util.List<Rectangle> all = usableMonitors(primary);
-        if (preferred != null && all.size() > 1
-                && ThreadLocalRandom.current().nextDouble() < DIFFERENT_MONITOR_REENTRY_CHANCE) {
-            java.util.List<Rectangle> others = new java.util.ArrayList<>(all.size() - 1);
-            for (Rectangle b : all) {
-                if (!b.equals(preferred)) {
-                    others.add(b);
-                }
-            }
-            if (!others.isEmpty()) {
-                Rectangle pick = others.get(
-                        ThreadLocalRandom.current().nextInt(others.size()));
-                return entryPlanFor(pick);
-            }
+        if (all.isEmpty()) {
+            return entryPlanFor(preferred != null ? preferred : primary);
         }
-        if (preferred != null) {
-            return entryPlanFor(preferred);
-        }
-        return pickEntryPlan(primary);
+        return entryPlanFor(pickSpreadMonitor(all, primary));
     }
 
-    /** Fraction of disappear/reappear events that re-enter on a DIFFERENT
-     *  monitor than the one the pet left. Only consulted when multiple
-     *  usable monitors are present; otherwise the pet re-enters on the
-     *  only monitor. Tuned so cross-screen migration is noticeable
-     *  ("oh, the cat is on the other screen now") but the pet still
-     *  spends most of its time on a stable home screen. */
-    private static final double DIFFERENT_MONITOR_REENTRY_CHANCE = 0.6;
-
-    /** Collect the de-duplicated, non-degenerate screen rectangles. Mirrors
-     *  the filtering inside {@link #pickEntryPlan} so re-entry honors the
-     *  same monitor set the entry walk uses. */
+    /** Collect the de-duplicated, non-degenerate screen rectangles: spawning
+     *  onto a 0×0 phantom monitor would leave the pet permanently off-screen,
+     *  and spawning onto a mirror would visually duplicate but live on a
+     *  different GraphicsDevice than the one walkAlongFloor picks back,
+     *  breaking edge clipping. */
     private static java.util.List<Rectangle> usableMonitors(Rectangle fallback) {
         java.util.List<Rectangle> usable = new java.util.ArrayList<>();
         try {
