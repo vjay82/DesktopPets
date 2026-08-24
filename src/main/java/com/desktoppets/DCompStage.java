@@ -225,7 +225,8 @@ public final class DCompStage {
     private volatile CountDownLatch startLatch;
 
     // Native handles (valid only on the owner thread once ready).
-    private long hwnd;
+    // hwnd is volatile: hostHwnd() hands it to the render/occlusion threads.
+    private volatile long hwnd;
     private long d3dDevice;
     private long d3dContext;
     private long dcompDevice;
@@ -253,6 +254,14 @@ public final class DCompStage {
     /** {@code true} once the host window + DComp device are live and usable. */
     public boolean isReady() {
         return ready.get();
+    }
+
+    /** Native handle of the click-through host window spanning the virtual
+     *  desktop, or {@code 0} before {@link #start(long)} succeeded. Callers use
+     *  it to keep the window in the topmost band and to compute the pet
+     *  occlusion (see {@link Win32#collectOccludersPhysical(long)}). */
+    public long hostHwnd() {
+        return hwnd;
     }
 
     /**

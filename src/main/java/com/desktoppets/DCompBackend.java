@@ -72,6 +72,26 @@ public final class DCompBackend {
     /** EDT-confined registry of live pet windows and their visual state. */
     private static final Map<PetWindow, State> REGISTRY = new LinkedHashMap<>();
 
+    private static final int[][] EMPTY_OCC = new int[0][];
+
+    /** Rectangles of the free-floating windows currently overlapping the stage,
+     *  in absolute PHYSICAL virtual-desktop pixels ({@code {x,y,w,h}}). Punched
+     *  out of each pet bitmap so the pets appear to hide behind those windows.
+     *  Maximised / full-screen windows are deliberately NOT in here — the pets
+     *  float on top of those. Recomputed off-EDT, read on the EDT. */
+    private static volatile int[][] occluders = EMPTY_OCC;
+
+    /** Drives the occlusion recompute and the topmost re-assertion. Event-driven
+     *  via {@link Win32#startOcclusionWatch}, plus a 1 Hz safety net. */
+    private static volatile java.util.concurrent.ScheduledExecutorService occlusionTimer;
+
+    /** Coalesces a burst of WinEvent notifications (dragging a window fires many
+     *  per second) into at most one recompute every 33 ms. */
+    private static final java.util.concurrent.atomic.AtomicBoolean OCC_PENDING =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    private static final long OCC_COALESCE_MS = 33L;
+
     private static final class State {
         long handle;
         int w = -1;
@@ -118,6 +138,8 @@ public final class DCompBackend {
                 return false;
             }
             buildMonitorMap();
+            Win32.registerOwnWindow(stage.hostHwnd());
+            startOcclusionTracking();
             timer = new Timer(FRAME_MS, e -> tick());
             timer.setCoalesce(true);
             timer.start();
@@ -265,6 +287,101 @@ public final class DCompBackend {
     }
 
     // ──────────────────────────────────────────────────────────────
+    //  Z-order + occlusion (off-EDT)
+    // ──────────────────────────────────────────────────────────────
+
+    /**
+     * Start the background task that keeps the pets correctly layered against
+     * the rest of the desktop. It does two things, both off the EDT:
+     *
+     * <ol>
+     *   <li><b>Keeps the host window in the topmost band.</b> The window is
+     *       created {@code WS_EX_TOPMOST}, but Windows demotes it below ordinary
+     *       application windows over time while LEAVING the style bit set — the
+     *       pets then disappear behind whatever is maximised. {@link
+     *       Win32#reassertTopmost(long)} detects that via a real Z-order walk and
+     *       pushes the window back into the band.</li>
+     *   <li><b>Recomputes the occluders.</b> Because the host floats above every
+     *       ordinary window, nothing would ever cover the pets; the free-floating
+     *       (non-maximised) windows overlapping the stage are therefore cut out
+     *       of each pet's bitmap instead — see {@link #clearOccluded}.</li>
+     * </ol>
+     *
+     * The recompute is event-driven ({@link Win32#startOcclusionWatch}) with a
+     * 1 Hz safety net, so a still desktop costs almost nothing.
+     */
+    private static void startOcclusionTracking() {
+        if (!Win32.isAvailable()) {
+            return;
+        }
+        occlusionTimer = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread th = new Thread(r, "pets-dcomp-occlusion");
+            th.setDaemon(true);
+            return th;
+        });
+        occlusionTimer.scheduleWithFixedDelay(DCompBackend::refreshZOrderAndOcclusion,
+                200, 1000, java.util.concurrent.TimeUnit.MILLISECONDS);
+        Win32.startOcclusionWatch(DCompBackend::onWindowChanged);
+    }
+
+    /** WinEvent listener (hook thread): schedule a single coalesced recompute. */
+    private static void onWindowChanged() {
+        java.util.concurrent.ScheduledExecutorService t = occlusionTimer;
+        if (t == null || !OCC_PENDING.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            t.schedule(() -> {
+                OCC_PENDING.set(false);
+                refreshZOrderAndOcclusion();
+            }, OCC_COALESCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (RuntimeException ex) {
+            OCC_PENDING.set(false); // executor shutting down
+        }
+    }
+
+    private static void refreshZOrderAndOcclusion() {
+        DCompStage s = stage;
+        if (s == null || !s.isReady()) {
+            return;
+        }
+        long host = s.hostHwnd();
+        if (host == 0L) {
+            return;
+        }
+        Win32.reassertTopmost(host);
+        occluders = Win32.collectOccludersPhysical(host);
+    }
+
+    /**
+     * Punch the free-floating windows overlapping this pet out of its bitmap, so
+     * the pet looks like it is hiding behind them. {@code px} is premultiplied
+     * ARGB, so a cleared pixel is simply 0.
+     *
+     * <p>Only ordinary, partial windows are in {@link #occluders} — maximised and
+     * full-screen ones are excluded by the collector, so the pets keep floating
+     * on top of those. Because the cleared pixels feed the change hash in
+     * {@link #updateOne}, a window moving over a standing pet re-uploads its
+     * bitmap automatically.
+     */
+    private static void clearOccluded(int[] px, int pxW, int pxH, int physX, int physY) {
+        int[][] occ = occluders;
+        for (int i = 0; i < occ.length; i++) {
+            int[] r = occ[i];
+            int l = Math.max(r[0] - physX, 0);
+            int t = Math.max(r[1] - physY, 0);
+            int rr = Math.min(r[0] + r[2] - physX, pxW);
+            int bb = Math.min(r[1] + r[3] - physY, pxH);
+            if (rr <= l || bb <= t) {
+                continue;
+            }
+            for (int y = t; y < bb; y++) {
+                Arrays.fill(px, y * pxW + l, y * pxW + rr, 0);
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────
     //  Called from PetWindow (marshalled onto the EDT)
     // ──────────────────────────────────────────────────────────────
 
@@ -344,6 +461,8 @@ public final class DCompBackend {
         boolean changed = false;
         int pxW = Math.max(1, (int) Math.round(w * sx));
         int pxH = Math.max(1, (int) Math.round(h * sy));
+        int physX = mon != null ? (int) Math.round(mon.px() + (lx - mon.lx()) * sx) : lx;
+        int physY = mon != null ? (int) Math.round(mon.py() + (ly - mon.ly()) * sy) : ly;
 
         // (Re)create the visual on first use or when the physical size changed
         // (pet resized, or moved to a monitor with a different DPI scale).
@@ -366,6 +485,7 @@ public final class DCompBackend {
 
         // Upload pixels only when the pet's appearance actually changed.
         int[] px = renderPanel(pw.panel(), w, h, pxW, pxH, sx, sy);
+        clearOccluded(px, pxW, pxH, physX, physY);
         int hash = Arrays.hashCode(px);
         if (hash != s.lastHash) {
             stage.updateBitmap(s.handle, px, pxW, pxH);
@@ -375,12 +495,6 @@ public final class DCompBackend {
 
         // Move only when the position actually changed (idle pets are free).
         if (lx != s.lastX || ly != s.lastY) {
-            int physX = mon != null
-                    ? (int) Math.round(mon.px() + (lx - mon.lx()) * sx)
-                    : lx;
-            int physY = mon != null
-                    ? (int) Math.round(mon.py() + (ly - mon.ly()) * sy)
-                    : ly;
             stage.setPosition(s.handle, physX, physY);
             s.lastX = lx;
             s.lastY = ly;

@@ -121,6 +121,25 @@ public final class Win32 {
                     FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS))
             : null;
 
+    /** {@code GetTopWindow(NULL)} — the front-most top-level window in the
+     *  global Z-order; the entry point of the walk in
+     *  {@link #isInTopmostBand(long)}. */
+    private static final MethodHandle GET_TOP_WINDOW = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("GetTopWindow").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS))
+            : null;
+
+    /** {@code GetWindow(hwnd, GW_HWNDNEXT)} — the next window BEHIND the given
+     *  one in the global Z-order. */
+    private static final MethodHandle GET_WINDOW = WINDOWS
+            ? LINKER.downcallHandle(
+                    USER32.find("GetWindow").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT))
+            : null;
+
+    private static final int GW_HWNDNEXT = 2;
+
     /** {@code IsZoomed} — TRUE iff the window is maximised. A maximised window
      *  fills the work area down to the taskbar (i.e. over the strip the pets
      *  stand on), so carving it would erase every pet; such windows are skipped
@@ -713,31 +732,77 @@ public final class Win32 {
      * cheap; safe to call every behavior tick to keep pet windows from being
      * demoted out of the topmost band by other apps.
      *
-     * <p>Important: we first check {@code WS_EX_TOPMOST} on the window and
-     * skip the {@code SetWindowPos} call if it's already set. Calling
-     * {@code SetWindowPos(HWND_TOPMOST)} on a window that's already topmost
-     * still re-orders it to the FRONT of the topmost band — so two pet
-     * frames whose paths overlap will keep flipping each other to the back
-     * each tick, producing a visible flicker. Only the rare actual demotion
-     * (from another app) needs the SetWindowPos call.
+     * <p>Important: the call is skipped while the window really is in the
+     * topmost band, because {@code SetWindowPos(HWND_TOPMOST)} on an
+     * already-topmost window still re-orders it to the FRONT of that band — so
+     * two pet frames whose paths overlap would keep flipping each other to the
+     * back each tick, producing a visible flicker.
+     *
+     * <p>The membership test is {@link #isInTopmostBand(long)} — an actual
+     * Z-order walk — and deliberately NOT the {@code WS_EX_TOPMOST} style bit:
+     * Windows can push a window out of the topmost band while leaving that bit
+     * set (observed on the DirectComposition host window, which then ended up
+     * behind maximised applications and hid every pet). A style-bit check
+     * therefore never recovers from that state. For the same reason the
+     * recovery does an explicit {@code HWND_NOTOPMOST} → {@code HWND_TOPMOST}
+     * round-trip: re-applying {@code HWND_TOPMOST} to a window whose style bit
+     * is already set can be treated as a no-op, whereas the transition forces
+     * the window back into the band.
      */
     public static void reassertTopmost(long hwnd) {
         if (!WINDOWS || hwnd == 0L) {
             return;
         }
         try {
-            MemorySegment h = MemorySegment.ofAddress(hwnd);
-            long exStyle = (long) GET_WINDOW_LONG_PTR.invoke(h, GWL_EXSTYLE);
-            if ((exStyle & WS_EX_TOPMOST) != 0L) {
-                // Already topmost — don't re-front it, that's what causes
+            if (isInTopmostBand(hwnd)) {
+                // Really in the band — don't re-front it, that's what causes
                 // the per-tick z-order war between overlapping pets.
                 return;
             }
-            // HWND_TOPMOST = -1 ; flags = SWP_NOMOVE(0x2)|SWP_NOSIZE(0x1)|SWP_NOACTIVATE(0x10) = 0x13
+            MemorySegment h = MemorySegment.ofAddress(hwnd);
+            // flags = SWP_NOMOVE(0x2)|SWP_NOSIZE(0x1)|SWP_NOACTIVATE(0x10) = 0x13
+            // HWND_NOTOPMOST = -2, then HWND_TOPMOST = -1.
+            SET_WINDOW_POS.invoke(h, MemorySegment.ofAddress(-2L), 0, 0, 0, 0, 0x13);
             SET_WINDOW_POS.invoke(h, MemorySegment.ofAddress(-1L), 0, 0, 0, 0, 0x13);
         } catch (Throwable t) {
             // best-effort; do not spam logs
         }
+    }
+
+    /**
+     * TRUE iff {@code hwnd} really sits in the topmost band, i.e. no VISIBLE
+     * non-topmost window precedes it in the global Z-order. Walks the Z-order
+     * front-to-back and stops at the first of the two answers, so it normally
+     * inspects only the handful of windows in the topmost band.
+     *
+     * <p>This exists because the {@code WS_EX_TOPMOST} extended style is not a
+     * reliable indicator: a window can keep the bit while having been demoted
+     * below ordinary application windows. Returns {@code true} ("assume fine",
+     * so callers don't churn {@code SetWindowPos}) off Windows or when the
+     * Z-order cannot be walked.
+     */
+    public static boolean isInTopmostBand(long hwnd) {
+        if (!WINDOWS || hwnd == 0L || GET_TOP_WINDOW == null || GET_WINDOW == null) {
+            return true;
+        }
+        try {
+            MemorySegment h = (MemorySegment) GET_TOP_WINDOW.invoke(MemorySegment.NULL);
+            for (int i = 0; i < 4096 && h != null && h.address() != 0L; i++) {
+                if (h.address() == hwnd) {
+                    return true;
+                }
+                if ((int) IS_WINDOW_VISIBLE.invoke(h) != 0) {
+                    long exStyle = (long) GET_WINDOW_LONG_PTR.invoke(h, GWL_EXSTYLE);
+                    if ((exStyle & WS_EX_TOPMOST) == 0L) {
+                        return false; // band ended before we reached hwnd
+                    }
+                }
+                h = (MemorySegment) GET_WINDOW.invoke(h, GW_HWNDNEXT);
+            }
+        } catch (Throwable t) {
+            // best-effort; treat as "in band" so we don't fight the z-order blindly
+        }
+        return true;
     }
 
     /**
@@ -916,13 +981,6 @@ public final class Win32 {
     private static final class HoleCollector {
         long stageHwnd;
         int sLeft, sTop, sRight, sBottom; // stage rect, physical px
-        // Work area (monitor minus taskbar) of the stage's monitor, physical px.
-        // A window filling this is "effectively maximised" and must not be
-        // carved (it would erase every pet) even though IsZoomed is false and
-        // it stops short of the monitor's true bottom. Defaults to the full
-        // stage rect until resolved.
-        int wLeft, wTop, wRight, wBottom;
-        boolean workAreaKnown;
         final List<int[]> holes = new ArrayList<>(); // {l,t,r,b} in window coords
         // Physical-px rects of "pets float on top" windows (maximised /
         // full-monitor / work-area-filling) seen SO FAR during the single
@@ -939,40 +997,31 @@ public final class Win32 {
             this.sTop = t;
             this.sRight = r;
             this.sBottom = b;
-            int[] wa = workAreaForWindow(hwnd);
-            if (wa != null) {
-                this.wLeft = wa[0];
-                this.wTop = wa[1];
-                this.wRight = wa[2];
-                this.wBottom = wa[3];
-                this.workAreaKnown = true;
-            } else {
-                this.wLeft = l;
-                this.wTop = t;
-                this.wRight = r;
-                this.wBottom = b;
-                this.workAreaKnown = false;
-            }
             this.holes.clear();
             this.frontBlockers.clear();
         }
     }
 
-    /** Reusable per-thread 40-byte {@code MONITORINFO} for {@link #workAreaForWindow}. */
+    /** Reusable per-thread 40-byte {@code MONITORINFO} for {@link #monitorRectsForWindow}. */
     private static final ThreadLocal<MemorySegment> MONITORINFO_BUF = WINDOWS
             ? ThreadLocal.withInitial(() -> ARENA.allocate(40))
             : null;
 
-    /** Work-area rect ({@code {left,top,right,bottom}}, physical px) of the
-     *  monitor the given window is on, or null if it can't be resolved. The
-     *  work area excludes the taskbar — exactly the region the pets occupy. */
-    private static int[] workAreaForWindow(long hwnd) {
-        if (!WINDOWS || MONITOR_FROM_WINDOW == null || GET_MONITOR_INFO == null || hwnd == 0L) {
+    /**
+     * Full monitor rect AND work area (monitor minus taskbar) of the monitor
+     * the given window sits on, as
+     * {@code {monLeft, monTop, monRight, monBottom, workLeft, workTop, workRight, workBottom}}
+     * in physical px, or null if it can't be resolved. The work area is exactly
+     * the region the pets occupy.
+     */
+    private static int[] monitorRectsForWindow(MemorySegment hwnd) {
+        if (!WINDOWS || MONITOR_FROM_WINDOW == null || GET_MONITOR_INFO == null
+                || hwnd == null || hwnd.address() == 0L) {
             return null;
         }
         try {
             MemorySegment hMon = (MemorySegment) MONITOR_FROM_WINDOW.invoke(
-                    MemorySegment.ofAddress(hwnd), MONITOR_DEFAULTTONEAREST);
+                    hwnd, MONITOR_DEFAULTTONEAREST);
             if (hMon == null || hMon.address() == 0) {
                 return null;
             }
@@ -983,6 +1032,10 @@ public final class Win32 {
             }
             // MONITORINFO: cbSize(0), rcMonitor(4..19), rcWork(20..35), dwFlags(36)
             return new int[] {
+                    mi.get(ValueLayout.JAVA_INT, 4L),
+                    mi.get(ValueLayout.JAVA_INT, 8L),
+                    mi.get(ValueLayout.JAVA_INT, 12L),
+                    mi.get(ValueLayout.JAVA_INT, 16L),
                     mi.get(ValueLayout.JAVA_INT, 20L),
                     mi.get(ValueLayout.JAVA_INT, 24L),
                     mi.get(ValueLayout.JAVA_INT, 28L),
@@ -1064,20 +1117,16 @@ public final class Win32 {
             // front-most, so Z-order can't tell these apart — the window's
             // SIZE / maximised state is the reliable discriminator.
             //
-            // "Fills the monitor" means EITHER the full monitor rect OR the
-            // monitor's WORK AREA (monitor minus taskbar). The work-area case
-            // matters because some apps (e.g. Microsoft Edge / Chromium) sit at
-            // exactly (0,0)-(workW,workH) without being IsZoomed and without
-            // reaching the monitor's true bottom — so they were mis-classified
-            // as partial and carved out every pet standing on the taskbar
-            // ("all pets cut off"). They cover the entire pet floor, so treat
-            // them like a maximised window: don't carve, let pets float on top.
+            // "Fills the monitor" is evaluated against the CANDIDATE window's
+            // own monitor (not the stage rect), so it stays correct for a stage
+            // that spans the whole virtual desktop — which the DirectComposition
+            // host window does. See fillsItsMonitor.
             //
             // Such a window is ALSO a "front blocker": EnumWindows runs
             // front-to-back, so any partial window enumerated AFTER this one is
             // behind it. Record its rect so a partial window fully hidden behind
             // it is not carved (see below).
-            if (isMaximized(hwnd) || coversWholeStage(pr, c) || coversWorkArea(pr, c)) {
+            if (isMaximized(hwnd) || fillsItsMonitor(hwnd, pr)) {
                 c.frontBlockers.add(new int[] { pr[0], pr[1], pr[2], pr[3] });
                 return 1;
             }
@@ -1109,40 +1158,32 @@ public final class Win32 {
         return IS_ZOOMED != null && ((int) IS_ZOOMED.invoke(hwnd)) != 0;
     }
 
-    /** TRUE iff {@code pr} (physical px) covers essentially the entire stage
-     *  monitor (within a few px on every edge) — a full-screen / borderless
-     *  window or the desktop wallpaper host. Such a window would hide all the
-     *  pets, so it must not be carved. */
-    private static boolean coversWholeStage(int[] pr, HoleCollector c) {
-        final int M = 2;
-        return pr[0] <= c.sLeft + M && pr[1] <= c.sTop + M
-                && pr[2] >= c.sRight - M && pr[3] >= c.sBottom - M;
-    }
-
-    /** TRUE iff {@code pr} (physical px) covers essentially the entire WORK
-     *  AREA of the stage's monitor — the monitor minus the taskbar, i.e. the
-     *  region the pets actually stand in. A window doing this (e.g. a
-     *  work-area-filling but not-{@code IsZoomed} Edge/Chromium window) would
-     *  hide every pet, so it must not be carved even though it stops short of
-     *  the monitor's true bottom. Falls back to false when the work area could
-     *  not be resolved (then {@link #coversWholeStage} is the only guard).
+    /** TRUE iff {@code pr} (physical px) covers essentially the entire monitor
+     *  the window sits on, or that monitor's entire WORK AREA (monitor minus
+     *  taskbar, i.e. the region the pets actually stand in). Such a window — a
+     *  full-screen / borderless app, the desktop wallpaper host, or a
+     *  work-area-filling but not-{@code IsZoomed} Edge/Chromium window — would
+     *  hide every pet if it were carved, so the pets float on top of it instead.
      *
-     *  <p>The left/top/right edges use the tight {@code M}=2px margin; the
-     *  BOTTOM edge is matched loosely (the window need only reach DOWN TO the
-     *  work-area bottom, i.e. the taskbar top — it may legitimately stop a few
-     *  px above the taskbar). Anchoring at top-left and spanning the full work
-     *  width is what distinguishes "maximised-like" from a large free-floating
-     *  window that leaves part of the screen uncovered. */
-    private static boolean coversWorkArea(int[] pr, HoleCollector c) {
-        if (!c.workAreaKnown) {
+     *  <p>The left/top/right edges use a tight 2px margin; the BOTTOM edge of
+     *  the work-area test is matched loosely (the window need only reach DOWN TO
+     *  the taskbar top — it may legitimately stop a few px above it). Anchoring
+     *  at top-left and spanning the full work width is what distinguishes
+     *  "maximised-like" from a large free-floating window that leaves part of
+     *  the screen uncovered. Returns false when the monitor can't be resolved. */
+    private static boolean fillsItsMonitor(MemorySegment hwnd, int[] pr) {
+        int[] m = monitorRectsForWindow(hwnd);
+        if (m == null) {
             return false;
         }
         final int M = 2;
-        // Allow the window bottom to fall a little short of the work-area bottom
-        // (some maximised-equivalent windows stop ~taskbar-height above it).
-        int bottomSlack = Math.max(8, (c.wBottom - c.wTop) / 12);
-        return pr[0] <= c.wLeft + M && pr[1] <= c.wTop + M
-                && pr[2] >= c.wRight - M && pr[3] >= c.wBottom - bottomSlack;
+        if (pr[0] <= m[0] + M && pr[1] <= m[1] + M
+                && pr[2] >= m[2] - M && pr[3] >= m[3] - M) {
+            return true; // whole monitor: full-screen / borderless / wallpaper host
+        }
+        int bottomSlack = Math.max(8, (m[7] - m[5]) / 12);
+        return pr[0] <= m[4] + M && pr[1] <= m[5] + M
+                && pr[2] >= m[6] - M && pr[3] >= m[7] - bottomSlack;
     }
 
     /** TRUE iff {@code pr} (physical px) is essentially fully contained in one
@@ -1290,6 +1331,62 @@ public final class Win32 {
         } catch (Throwable t) {
             if (OCCLUSION_FAILURE_LOGGED.compareAndSet(false, true)) {
                 Log.warn("win32", "collectOccluders failed: " + t);
+            }
+            return EMPTY_RECTS;
+        }
+    }
+
+    /**
+     * Same occlusion pass as {@link #collectOccluders(long)}, but the returned
+     * rectangles are absolute <b>physical</b> (device-pixel) virtual-desktop
+     * coordinates as {@code {x, y, width, height}}.
+     *
+     * <p>Used by the DirectComposition backend, which positions each pet visual
+     * in physical pixels via a per-monitor logical→physical map. Feeding it the
+     * logical rectangles of {@link #collectOccluders(long)} would run them
+     * through the single global DPI scale and misplace the cut-outs on a
+     * mixed-DPI setup.
+     */
+    public static int[][] collectOccludersPhysical(long stageHwnd) {
+        if (!WINDOWS || stageHwnd == 0L) {
+            return EMPTY_RECTS;
+        }
+        try {
+            int[] sr = physicalRectRaw(MemorySegment.ofAddress(stageHwnd));
+            if (sr == null) {
+                return EMPTY_RECTS;
+            }
+            HoleCollector c = HOLE_COLLECTOR.get();
+            c.reset(stageHwnd, sr[0], sr[1], sr[2], sr[3]);
+            ENUM_WINDOWS.invoke(HOLE_PROC_STUB, 0L);
+
+            List<int[]> holes = c.holes;
+            if (holes.isEmpty()) {
+                return EMPTY_RECTS;
+            }
+            // The cosmetic overlap is specified in logical px; scale it so the
+            // pets overhang each window border by the same visual amount.
+            int insetX = (int) Math.round(OCCLUDER_INSET_PX * DPI_SCALE_X);
+            int insetY = (int) Math.round(OCCLUDER_INSET_PX * DPI_SCALE_Y);
+            List<int[]> out = new ArrayList<>(holes.size());
+            for (int i = 0; i < holes.size(); i++) {
+                int[] hr = holes.get(i); // {left,top,right,bottom} physical, stage-relative
+                int x = c.sLeft + hr[0] + insetX;
+                int y = c.sTop + hr[1] + insetY;
+                int x2 = c.sLeft + hr[2] - insetX;
+                int y2 = c.sTop + hr[3] - insetY;
+                if (x2 <= x || y2 <= y) {
+                    continue; // window narrower/shorter than the inset — nothing left to cut
+                }
+                out.add(new int[] { x, y, x2 - x, y2 - y });
+            }
+            if (out.isEmpty()) {
+                return EMPTY_RECTS;
+            }
+            return out.toArray(new int[0][]);
+        } catch (Throwable t) {
+            if (OCCLUSION_FAILURE_LOGGED.compareAndSet(false, true)) {
+                Log.warn("win32", "collectOccludersPhysical failed: " + t);
             }
             return EMPTY_RECTS;
         }
