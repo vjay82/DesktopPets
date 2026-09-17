@@ -29,8 +29,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * </ul>
  *
  * <p>Rarity tuning: with {@link #POLL_INTERVAL_MS}=60 s and
- * {@link #SPAWN_PROBABILITY_PER_POLL}=0.04, mean inter-visit time when
- * eligible is ≈ 25 min — visible occasionally but never spammy.
+ * {@link #SPAWN_PROBABILITY_PER_POLL}=0.004, mean inter-visit time when
+ * eligible is ≈ 4 h 10 min — visible occasionally but never spammy.
  */
 public final class PetVisitor {
 
@@ -38,7 +38,7 @@ public final class PetVisitor {
     private static final long POLL_INTERVAL_MS = 60_000L;
 
     /** Per-poll spawn probability when all preconditions hold. */
-    private static final double SPAWN_PROBABILITY_PER_POLL = 0.04;
+    private static final double SPAWN_PROBABILITY_PER_POLL = 0.004;
 
     /** Min/max horizontal gap from the anchor pet's center to the visitor's. */
     private static final int MIN_GAP_FROM_PET = 100;

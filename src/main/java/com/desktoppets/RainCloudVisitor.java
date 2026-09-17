@@ -19,8 +19,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * {@link SpecialEvents} before {@code attempt} runs.
  *
  * <p>Rarity tuning: with {@link #POLL_INTERVAL_MS}=150 s and
- * {@link #SPAWN_PROBABILITY_PER_POLL}=0.05, the mean inter-visit time while
- * eligible is ≈ 50 min.
+ * {@link #SPAWN_PROBABILITY_PER_POLL}=0.005, the mean inter-visit time while
+ * eligible is ≈ 8 h 20 min.
  */
 public final class RainCloudVisitor {
 
@@ -28,7 +28,7 @@ public final class RainCloudVisitor {
     private static final long POLL_INTERVAL_MS = 150_000L;
 
     /** Per-poll spawn probability when the preconditions hold. */
-    private static final double SPAWN_PROBABILITY_PER_POLL = 0.05;
+    private static final double SPAWN_PROBABILITY_PER_POLL = 0.005;
 
     private RainCloudVisitor() {
     }

@@ -3,6 +3,7 @@ package com.desktoppets;
 import java.awt.AlphaComposite;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
@@ -286,6 +287,19 @@ public final class DCompBackend {
         return best;
     }
 
+    private static Mon monitorFor(Rectangle bounds) {
+        if (bounds == null) {
+            return null;
+        }
+        for (Mon monitor : monitors) {
+            if (monitor.lx() == bounds.x && monitor.ly() == bounds.y
+                    && monitor.lw() == bounds.width && monitor.lh() == bounds.height) {
+                return monitor;
+            }
+        }
+        return null;
+    }
+
     // ──────────────────────────────────────────────────────────────
     //  Z-order + occlusion (off-EDT)
     // ──────────────────────────────────────────────────────────────
@@ -381,6 +395,24 @@ public final class DCompBackend {
         }
     }
 
+    private static void clearOutsideMonitor(int[] px, int pxW, int pxH, int physX, int physY,
+            Mon monitor) {
+        int left = Math.max(0, Math.min(pxW, monitor.px() - physX));
+        int top = Math.max(0, Math.min(pxH, monitor.py() - physY));
+        int right = Math.max(0, Math.min(pxW,
+            monitor.px() + (int) Math.round(monitor.lw() * monitor.sx()) - physX));
+        int bottom = Math.max(0, Math.min(pxH,
+            monitor.py() + (int) Math.round(monitor.lh() * monitor.sy()) - physY));
+        for (int y = 0; y < pxH; y++) {
+            if (y < top || y >= bottom) {
+                Arrays.fill(px, y * pxW, (y + 1) * pxW, 0);
+            } else {
+                Arrays.fill(px, y * pxW, y * pxW + left, 0);
+                Arrays.fill(px, y * pxW + right, (y + 1) * pxW, 0);
+            }
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────
     //  Called from PetWindow (marshalled onto the EDT)
     // ──────────────────────────────────────────────────────────────
@@ -450,11 +482,16 @@ public final class DCompBackend {
             return false;
         }
 
-        // Map the pet's logical position to physical device pixels using the
-        // monitor it is (nearest) on — correct across mixed-DPI monitors.
+        // A pet remains bound to its source monitor while it walks off-screen.
+        // Use that binding rather than its current position, which may already
+        // be on an adjacent monitor, for DPI conversion and final clipping.
         int lx = pw.getX();
         int ly = pw.getY();
-        Mon mon = monitorFor(lx + w / 2, ly + h / 2);
+        Rectangle clipBounds = pw.clipMonitor();
+        Mon mon = monitorFor(clipBounds);
+        if (mon == null) {
+            mon = monitorFor(lx + w / 2, ly + h / 2);
+        }
         double sx = mon != null ? mon.sx() : 1.0;
         double sy = mon != null ? mon.sy() : 1.0;
 
@@ -485,6 +522,9 @@ public final class DCompBackend {
 
         // Upload pixels only when the pet's appearance actually changed.
         int[] px = renderPanel(pw.panel(), w, h, pxW, pxH, sx, sy);
+        if (mon != null && clipBounds != null) {
+            clearOutsideMonitor(px, pxW, pxH, physX, physY, mon);
+        }
         clearOccluded(px, pxW, pxH, physX, physY);
         int hash = Arrays.hashCode(px);
         if (hash != s.lastHash) {

@@ -34,10 +34,10 @@ public final class BirdVisitor {
     private static final long POLL_INTERVAL_MS = 8_000L;
 
     /** Per-poll spawn probability when both preconditions hold. With an
-     *  8 s poll interval, 0.10 → mean inter-visit time ≈ 80 s of
+     *  8 s poll interval, 0.01 → mean inter-visit time ≈ 13 min 20 s of
      *  eligible time; the bird's own stay window (~10-30 s) is excluded
      *  from "eligible" by the visitor-already-alive check. */
-    private static final double SPAWN_PROBABILITY_PER_POLL = 0.10;
+    private static final double SPAWN_PROBABILITY_PER_POLL = 0.01;
 
     /** Horizontal gap from the anchor pet's center to the visitor's center,
      *  in logical pixels. The bird should land NEAR the anchor (close

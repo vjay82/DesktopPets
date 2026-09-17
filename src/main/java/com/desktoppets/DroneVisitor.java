@@ -20,8 +20,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * {@code attempt} runs.
  *
  * <p>Rarity tuning: with {@link #POLL_INTERVAL_MS}=150 s and
- * {@link #SPAWN_PROBABILITY_PER_POLL}=0.04, the mean inter-visit time while
- * eligible is ≈ 60 min.
+ * {@link #SPAWN_PROBABILITY_PER_POLL}=0.004, the mean inter-visit time while
+ * eligible is ≈ 10 h 25 min.
  */
 public final class DroneVisitor {
 
@@ -29,7 +29,7 @@ public final class DroneVisitor {
     private static final long POLL_INTERVAL_MS = 150_000L;
 
     /** Per-poll spawn probability when the preconditions hold. */
-    private static final double SPAWN_PROBABILITY_PER_POLL = 0.04;
+    private static final double SPAWN_PROBABILITY_PER_POLL = 0.004;
 
     private DroneVisitor() {
     }

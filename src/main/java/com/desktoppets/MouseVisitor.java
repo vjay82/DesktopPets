@@ -21,8 +21,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * {@link SpecialEvents} before {@code attempt} runs.
  *
  * <p>Rarity tuning: with {@link #POLL_INTERVAL_MS}=90 s and
- * {@link #SPAWN_PROBABILITY_PER_POLL}=0.05, the mean inter-visit time while
- * eligible is ≈ 30 min.
+ * {@link #SPAWN_PROBABILITY_PER_POLL}=0.005, the mean inter-visit time while
+ * eligible is ≈ 5 h.
  */
 public final class MouseVisitor {
 
@@ -30,7 +30,7 @@ public final class MouseVisitor {
     private static final long POLL_INTERVAL_MS = 90_000L;
 
     /** Per-poll spawn probability when the preconditions hold. */
-    private static final double SPAWN_PROBABILITY_PER_POLL = 0.05;
+    private static final double SPAWN_PROBABILITY_PER_POLL = 0.005;
 
     /** Min/max horizontal gap from the anchor pet's centre to the mouse's
      *  focus column (the column it passes closest to the resident). */

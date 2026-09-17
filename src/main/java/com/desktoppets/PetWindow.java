@@ -32,6 +32,7 @@ public final class PetWindow {
     private int width;
     private int height;
     private boolean visible = true;
+    private Rectangle clipMonitor;
 
     public PetWindow() {
         this.panel = new JPanel(null);
@@ -89,6 +90,16 @@ public final class PetWindow {
 
     public boolean isVisible() {
         return visible && panel.isVisible();
+    }
+
+    /** Pins DirectComposition pixels to this monitor while the pet walks
+     *  across an edge. Swing receives the same clipping from its stage canvas. */
+    public void setClipMonitor(Rectangle monitor) {
+        this.clipMonitor = monitor == null ? null : new Rectangle(monitor);
+    }
+
+    Rectangle clipMonitor() {
+        return clipMonitor == null ? null : new Rectangle(clipMonitor);
     }
 
     public void setVisible(boolean v) {
@@ -170,6 +181,7 @@ public final class PetWindow {
         this.y = sy;
         this.width = w;
         this.height = h;
+        setClipMonitor(monitor);
         if (dcomp) {
             DCompBackend.register(this);
         } else {

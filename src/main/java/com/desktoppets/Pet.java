@@ -2018,7 +2018,7 @@ public abstract class Pet implements Runnable {
             idle();
         }
 
-        int dotSize = Math.max(18, (int) Math.round(petSize * 0.42));
+        int dotSize = Math.max(9, (int) Math.round(petSize * 0.21));
         int dotMin = mon.x + 6;
         int dotMax = mon.x + mon.width - dotSize - 6;
         int dotX = clampInt(landX + petW + 20, dotMin, dotMax);
@@ -5064,6 +5064,7 @@ public abstract class Pet implements Runnable {
         }
         lastAppliedX = x;
         lastAppliedY = y;
+        frame.setClipMonitor(activeMonitor);
         frame.setLocation(x, y);
     }
 

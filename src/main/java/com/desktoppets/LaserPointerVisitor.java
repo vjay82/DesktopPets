@@ -20,8 +20,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * {@code attempt} runs.
  *
  * <p>Rarity tuning: with {@link #POLL_INTERVAL_MS}=170 s and
- * {@link #SPAWN_PROBABILITY_PER_POLL}=0.04, the mean inter-visit time while
- * eligible is ≈ 71 min.
+ * {@link #SPAWN_PROBABILITY_PER_POLL}=0.004, the mean inter-visit time while
+ * eligible is ≈ 11 h 48 min.
  */
 public final class LaserPointerVisitor {
 
@@ -29,7 +29,7 @@ public final class LaserPointerVisitor {
     private static final long POLL_INTERVAL_MS = 170_000L;
 
     /** Per-poll spawn probability when the preconditions hold. */
-    private static final double SPAWN_PROBABILITY_PER_POLL = 0.04;
+    private static final double SPAWN_PROBABILITY_PER_POLL = 0.004;
 
     /** Min/max horizontal gap from the anchor pet's centre to the cat's
      *  starting column. */

@@ -32,8 +32,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * </ul>
  *
  * <p>Rarity tuning: with {@link #POLL_INTERVAL_MS}=120 s and
- * {@link #SPAWN_PROBABILITY_PER_POLL}=0.04, the mean inter-visit time while
- * eligible is ≈ 50 min — a genuine surprise, never spammy.
+ * {@link #SPAWN_PROBABILITY_PER_POLL}=0.004, the mean inter-visit time while
+ * eligible is ≈ 8 h 20 min — a genuine surprise, never spammy.
  */
 public final class UfoVisitor {
 
@@ -41,7 +41,7 @@ public final class UfoVisitor {
     private static final long POLL_INTERVAL_MS = 120_000L;
 
     /** Per-poll spawn probability when both preconditions hold. */
-    private static final double SPAWN_PROBABILITY_PER_POLL = 0.04;
+    private static final double SPAWN_PROBABILITY_PER_POLL = 0.004;
 
     /** Min/max horizontal gap from the anchor pet's centre to the saucer's
      *  landing column, in logical pixels — close enough that the resident
